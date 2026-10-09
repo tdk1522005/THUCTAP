@@ -1,53 +1,44 @@
-from stt.transcript_stabilizer import TranscriptStabilizer
+﻿from stt.transcript_stabilizer import TranscriptStabilizer
 
 
-def print_result(
-    whisper_text,
-    result,
-):
-    print()
-    print(
-        f"Whisper : {whisper_text}"
-    )
+def test_full_text_tracks_latest_hypothesis():
+    stabilizer = TranscriptStabilizer(stable_words=2)
 
-    print(
-        f"New     : {result['new_text']}"
-    )
+    hypotheses = [
+        "Hello everyone, today I want to",
+        "Hello everyone, today I want to go to the",
+        "Hello everyone, today I want to go to the airport",
+        "Hello everyone, today I want to go to the airport and I need to take a taxi.",
+    ]
 
-    print(
-        f"Full    : {result['full_text']}"
-    )
+    result = None
+    for hypothesis in hypotheses:
+        result = stabilizer.update(hypothesis)
 
-
-stabilizer = TranscriptStabilizer(
-    stable_words=2
-)
+    assert result is not None
+    assert result["full_text"] == hypotheses[-1]
 
 
-tests = [
-    "you",
+def test_stable_text_is_committed_without_duplicates():
+    stabilizer = TranscriptStabilizer(stable_words=2)
 
-    "Hello everyone, today I want to",
-
-    "Hello everyone, today I want to go to the",
-
-    "Hello everyone, today I want to go to the airport",
-
-    "Hello everyone, today I want to go to the airport and",
-
-    "Hello everyone, today I want to go to the airport and I need to",
-
-    "Hello everyone, today I want to go to the airport and I need to take a taxi.",
-]
-
-
-for text in tests:
-
+    stabilizer.update("Hello everyone, today I want to")
     result = stabilizer.update(
-        text
+        "Hello everyone, today I want to go to the"
     )
 
-    print_result(
-        text,
-        result,
+    assert result["new_text"] == "Hello everyone, today I"
+
+
+def test_flush_returns_uncommitted_final_words():
+    stabilizer = TranscriptStabilizer(stable_words=2)
+
+    stabilizer.update("Hello everyone, today I want to")
+    stabilizer.update("Hello everyone, today I want to go to the")
+
+    remaining = stabilizer.flush()
+
+    assert remaining == "want to go to the"
+    assert stabilizer.get_text() == (
+        "Hello everyone, today I want to go to the"
     )
