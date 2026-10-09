@@ -1,78 +1,64 @@
-import re
+﻿import re
+from collections import deque
 
 
 class SentenceBuffer:
-    """Gom các chunk văn bản ổn định thành câu hoàn chỉnh."""
+    """Collect text chunks and emit complete sentences."""
 
-    SENTENCE_END_PATTERN = re.compile(r"[.!?。！？]\s*$")
+    SENTENCE_END_PATTERN = re.compile(r'[.!?。！？]+["\u0027\u201d\u2019)]*\s*')
 
     def __init__(self):
         self.buffer = ""
-        self.pending_sentence = None
-
-    def has_sentence_end(self, text):
-        return bool(self.SENTENCE_END_PATTERN.search(text.strip()))
+        self.pending_sentences = deque()
 
     @staticmethod
     def clean_sentence(text):
-        text = text.strip()
-        return re.sub(r"\s+", " ", text)
+        return re.sub(r"\s+", " ", text.strip())
 
     def add(self, text):
         text = self.clean_sentence(text)
-
         if not text:
-            return None
+            return self.pending_sentences.popleft() if self.pending_sentences else None
 
-        if self.pending_sentence is not None:
-            self.buffer = self.pending_sentence + " " + text
-            self.pending_sentence = None
-        elif self.buffer:
-            self.buffer += " " + text
-        else:
-            self.buffer = text
+        self.buffer = self.clean_sentence(
+            f"{self.buffer} {text}" if self.buffer else text
+        )
 
-        self.buffer = self.clean_sentence(self.buffer)
+        start = 0
+        for match in self.SENTENCE_END_PATTERN.finditer(self.buffer):
+            sentence = self.buffer[start:match.end()].strip()
+            if sentence:
+                self.pending_sentences.append(sentence)
+            start = match.end()
 
-        if self.has_sentence_end(self.buffer):
-            sentence = self.buffer
-            self.buffer = ""
-            return sentence
+        self.buffer = self.buffer[start:].strip()
 
-        return None
+        return (
+            self.pending_sentences.popleft()
+            if self.pending_sentences
+            else None
+        )
+
+    def pop_sentences(self):
+        """Return all complete sentences waiting in the internal queue."""
+        sentences = list(self.pending_sentences)
+        self.pending_sentences.clear()
+        return sentences
 
     def flush(self):
-        if self.pending_sentence is not None:
-            sentence = self.pending_sentence
-            self.pending_sentence = None
-            return sentence
+        """Return remaining text, including any queued complete sentences."""
+        if self.pending_sentences:
+            sentences = list(self.pending_sentences)
+            self.pending_sentences.clear()
+            if self.buffer:
+                sentences.append(self.buffer)
+                self.buffer = ""
+            return " ".join(sentences)
 
-        if self.buffer:
-            sentence = self.buffer
-            self.buffer = ""
-            return sentence
-
-        return None
+        remaining = self.clean_sentence(self.buffer)
+        self.buffer = ""
+        return remaining or None
 
     def reset(self):
         self.buffer = ""
-        self.pending_sentence = None
-
-
-    def test_integrated_chunks_produce_sentence_once():
-        buffer = SentenceBuffer()
-
-        chunks = [
-            "I want to",
-            "go to the airport",
-            "and take a taxi.",
-        ]
-
-        results = [buffer.add(chunk) for chunk in chunks]
-
-        sentences = [result for result in results if result is not None]
-
-        assert sentences == [
-            "I want to go to the airport and take a taxi."
-        ]
-        assert buffer.flush() is None
+        self.pending_sentences.clear()
