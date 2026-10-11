@@ -1,0 +1,6 @@
+﻿test_id,english,vietnamese,latency_ms
+1,I want to go to the airport.,Tôi muốn đi đến sân bay.,286.22
+2,"Hello everyone, today I want to go to the airport.","Xin chào mọi người, hôm nay tôi muốn ra sân bay.",328.57
+3,Can you tell me where the train station is?,Anh có thể cho tôi biết trạm xe lửa ở đâu không?,283.36
+4,I want to book a hotel room for two people for three nights.,Tôi muốn đặt phòng khách sạn cho hai người trong ba đêm.,300.45
+5,"If the flight is delayed, can we change the pickup time?","Nếu chuyến bay bị trễ, chúng ta có thể thay đổi thời gian được không?",334.64

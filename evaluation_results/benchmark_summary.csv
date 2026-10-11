@@ -1,0 +1,3 @@
+﻿model,corpus_wer,total_errors,reference_words,total_processing_seconds,average_processing_seconds_per_file
+base,0.24390243902439024,20,82,7.323495300021023,0.7323495300021022
+small,0.13414634146341464,11,82,17.786414399859495,1.7786414399859496
