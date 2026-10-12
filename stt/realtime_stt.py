@@ -5,10 +5,10 @@ from collections import deque
 
 import numpy as np
 import sounddevice as sd
-from faster_whisper import WhisperModel
 
+from stt.openai_transcriber import OpenAITranscriber
 from stt.sentence_buffer import SentenceBuffer
-from translation.translator import TranslationEngine
+from translation.openai_translator import OpenAITranslationEngine
 
 
 # =========================
@@ -18,11 +18,6 @@ from translation.translator import TranslationEngine
 SAMPLE_RATE = 16000
 CHANNELS = 1
 BLOCK_SECONDS = 0.1
-
-# Faster-Whisper
-MODEL_SIZE = "base"
-DEVICE = "cpu"
-COMPUTE_TYPE = "int8"
 
 # Silence detection
 RMS_THRESHOLD = 0.008
@@ -36,43 +31,26 @@ TRAILING_AUDIO_SECONDS = 0.2
 # STT
 # =========================
 
-def load_whisper_model():
-    print("Loading Faster-Whisper model...")
-    model = WhisperModel(
-        MODEL_SIZE,
-        device=DEVICE,
-        compute_type=COMPUTE_TYPE,
-    )
-    print("Faster-Whisper loaded.")
-    return model
-
-
 def calculate_rms(audio):
     if len(audio) == 0:
         return 0.0
+
     audio = np.asarray(audio, dtype=np.float32)
     return float(np.sqrt(np.mean(audio ** 2)))
 
 
-def transcribe_audio(model, audio):
-    audio = np.asarray(audio, dtype=np.float32)
-    segments, _ = model.transcribe(
+def transcribe_audio(transcriber, audio):
+    result = transcriber.transcribe(
         audio,
-        language="en",
-        beam_size=5,
-        vad_filter=True,
-        condition_on_previous_text=False,
+        sample_rate=SAMPLE_RATE,
     )
-    return " ".join(
-        segment.text.strip()
-        for segment in segments
-        if segment.text.strip()
-    ).strip()
+    return result["text"]
 
 
-def transcription_worker(model, stt_queue, result_queue):
+def transcription_worker(transcriber, stt_queue, result_queue):
     while True:
         item = stt_queue.get()
+
         try:
             if item is None:
                 return
@@ -81,7 +59,7 @@ def transcription_worker(model, stt_queue, result_queue):
             start_time = time.perf_counter()
 
             try:
-                text = transcribe_audio(model, audio)
+                text = transcribe_audio(transcriber, audio)
                 error = None
             except Exception as exc:
                 text = ""
@@ -97,6 +75,7 @@ def transcription_worker(model, stt_queue, result_queue):
                 "audio_duration": len(audio) / SAMPLE_RATE,
                 "error": error,
             })
+
         finally:
             stt_queue.task_done()
 
@@ -112,6 +91,7 @@ def translation_worker(
 ):
     while True:
         item = translation_queue.get()
+
         try:
             if item is None:
                 return
@@ -142,6 +122,7 @@ def translation_worker(
                 "speech_end_time": speech_end_time,
                 "error": error,
             })
+
         finally:
             translation_queue.task_done()
 
@@ -167,7 +148,6 @@ def handle_stt_result(result, translation_queue, sentence_buffer):
     if not source_text:
         return
 
-    # This app transcribes a complete audio segment at a time.
     # Flush at the segment boundary so text without punctuation
     # is not delayed until a later utterance.
     first_sentence = sentence_buffer.add(source_text)
@@ -224,8 +204,11 @@ def handle_translation_result(result):
 # =========================
 
 def main():
-    whisper_model = load_whisper_model()
-    translator = TranslationEngine()
+    print("Initializing OpenAI STT and translation...")
+    transcriber = OpenAITranscriber()
+    translator = OpenAITranslationEngine()
+    print(f"STT model: {transcriber.model}")
+    print(f"Translation model: {translator.model}")
 
     mic_queue = queue.Queue()
     stt_queue = queue.Queue()
@@ -248,7 +231,7 @@ def main():
 
     stt_thread = threading.Thread(
         target=transcription_worker,
-        args=(whisper_model, stt_queue, stt_result_queue),
+        args=(transcriber, stt_queue, stt_result_queue),
         daemon=True,
     )
     translation_thread = threading.Thread(
@@ -295,6 +278,7 @@ def main():
                         result = stt_result_queue.get_nowait()
                     except queue.Empty:
                         break
+
                     handle_stt_result(
                         result,
                         translation_queue,
@@ -306,6 +290,7 @@ def main():
                         result = translation_result_queue.get_nowait()
                     except queue.Empty:
                         break
+
                     handle_translation_result(result)
 
                 try:
@@ -317,6 +302,7 @@ def main():
 
                 if not is_speaking:
                     pre_roll.append(block)
+
                     if rms >= RMS_THRESHOLD:
                         is_speaking = True
                         last_voice_time = time.perf_counter()
@@ -326,6 +312,7 @@ def main():
                         )
                         silence_samples = 0
                         print("\nSpeech detected...")
+
                 else:
                     speech_blocks.append(block)
                     speech_samples += len(block)

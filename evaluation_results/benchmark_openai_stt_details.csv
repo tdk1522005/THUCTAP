@@ -1,0 +1,11 @@
+﻿model,file,reference,hypothesis,wer,substitutions,deletions,insertions,reference_words,errors,audio_seconds,processing_seconds,real_time_factor
+gpt-4o-mini-transcribe,sentence_01.wav,"Hello everyone, how are you doing today?","Hello everyone, how are you doing today?",0.0,0,0,0,7,0,10.0,2.5430461999494582,0.2543046199949458
+gpt-4o-mini-transcribe,sentence_02.wav,I hope you are doing well.,I hope you are doing well.,0.0,0,0,0,6,0,10.0,1.6634839000180364,0.16634839000180363
+gpt-4o-mini-transcribe,sentence_03.wav,What time does the train leave?,What time does the train leave?,0.0,0,0,0,6,0,10.0,1.5536698999349028,0.15536698999349027
+gpt-4o-mini-transcribe,sentence_04.wav,Could you tell me where the nearest train station is?,Could you tell me where the nearest train station is?,0.0,0,0,0,10,0,10.0,0.8599320000503212,0.08599320000503212
+gpt-4o-mini-transcribe,sentence_05.wav,"I would like a coffee and a sandwich, please.","I would like a coffee and a sandwich, please.",0.0,0,0,0,9,0,10.0,1.095906800008379,0.1095906800008379
+gpt-4o-mini-transcribe,sentence_06.wav,Please turn left at the next street.,Please don't leave up the net grid.,0.7142857142857143,5,0,0,7,5,10.0,1.0070435999659821,0.10070435999659821
+gpt-4o-mini-transcribe,sentence_07.wav,I need to book a hotel room for two nights.,I need to book a hotel room for two nights.,0.0,0,0,0,10,0,10.0,0.9306807999964803,0.09306807999964803
+gpt-4o-mini-transcribe,sentence_08.wav,The meeting will start at nine thirty tomorrow morning.,The meeting will start at nine thirty tomorrow morning.,0.0,0,0,0,9,0,10.0,1.113714799983427,0.1113714799983427
+gpt-4o-mini-transcribe,sentence_09.wav,Could you repeat that sentence a little more slowly?,Would you repeat that sentence a little more slowly?,0.1111111111111111,1,0,0,9,1,10.0,0.9302686000009999,0.09302686000009999
+gpt-4o-mini-transcribe,sentence_10.wav,Thank you for your help. Have a wonderful day.,Thank you for your help. Have a wonderful day.,0.0,0,0,0,9,0,10.0,0.7055660999612883,0.07055660999612882

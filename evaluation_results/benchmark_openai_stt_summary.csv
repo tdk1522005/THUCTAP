@@ -1,0 +1,2 @@
+﻿model,corpus_wer,total_errors,reference_words,total_processing_seconds,average_processing_seconds_per_file
+gpt-4o-mini-transcribe,0.07317073170731707,6,82,12.403312699869275,1.2403312699869276
