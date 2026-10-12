@@ -1,0 +1,578 @@
+﻿
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speech Translator — Streaming</title>
+<style>
+:root {
+  font-family: Inter, "Segoe UI", sans-serif;
+  color: #172033;
+  background: #f3f6fb;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 28px 16px; }
+main { max-width: 1000px; margin: auto; }
+header { text-align: center; margin-bottom: 24px; }
+h1 { margin-bottom: 8px; }
+.muted { color: #68758a; }
+.panel {
+  background: white;
+  border: 1px solid #e1e7f0;
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+button {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+button:disabled { opacity: .5; cursor: not-allowed; }
+.primary { background: #315de8; color: white; }
+.stop { background: #c43d4d; color: white; }
+.secondary { background: #eaf0fa; color: #25324a; }
+.toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  background: #f4f6fa;
+  border-radius: 10px;
+}
+.status {
+  text-align: center;
+  min-height: 24px;
+  margin-top: 14px;
+}
+.results {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.result-box {
+  background: #f8faff;
+  border: 1px solid #e6ebf4;
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 220px;
+}
+.label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #64718b;
+  letter-spacing: .08em;
+}
+.content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.metric {
+  background: #f0f4fb;
+  border-radius: 10px;
+  padding: 12px;
+  flex: 1;
+  min-width: 120px;
+}
+.metric strong { display: block; margin-top: 5px; }
+#history { max-height: 300px; overflow-y: auto; }
+.entry { padding: 12px 0; border-bottom: 1px solid #e6ebf4; }
+.entry:last-child { border-bottom: 0; }
+@media(max-width: 650px) {
+  .results { grid-template-columns: 1fr; }
+  .panel { padding: 16px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Speech Translator</h1>
+    <p class="muted">English → Vietnamese · Streaming theo cụm</p>
+  </header>
+
+  <section class="panel">
+    <div class="controls">
+      <button id="startButton" class="primary">Bắt đầu phiên dịch</button>
+      <button id="stopButton" class="stop" disabled>Dừng</button>
+      <label class="toggle">
+        <input id="ttsToggle" type="checkbox">
+        Tự động đọc tiếng Việt
+      </label>
+    </div>
+    <div id="status" class="status muted" role="status" aria-live="polite">
+      Đang kết nối backend...
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="results">
+      <div class="result-box">
+        <div class="label">ENGLISH · STT</div>
+        <div id="english" class="content">Lời nói tiếng Anh sẽ xuất hiện ở đây.</div>
+      </div>
+      <div class="result-box">
+        <div class="label">TIẾNG VIỆT · TRANSLATION</div>
+        <div id="vietnamese" class="content">Bản dịch sẽ xuất hiện ở đây.</div>
+      </div>
+    </div>
+    <div class="metrics">
+      <div class="metric"><span class="muted">STT</span><strong id="sttTime">—</strong></div>
+      <div class="metric"><span class="muted">Dịch</span><strong id="translationTime">—</strong></div>
+      <div class="metric"><span class="muted">Tổng xử lý</span><strong id="totalTime">—</strong></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="controls" style="justify-content:space-between">
+      <h2>Lịch sử phiên dịch</h2>
+      <button id="clearButton" class="secondary">Xóa lịch sử</button>
+    </div>
+    <div id="history" class="muted">Chưa có kết quả.</div>
+  </section>
+</main>
+
+<script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const socket = io();
+
+let running = false;
+let mediaStream = null;
+let audioContext = null;
+let processor = null;
+let sourceNode = null;
+
+let pcmBuffer = [];
+let bufferedSamples = 0;
+let silenceSamples = 0;
+let speechStarted = false;
+let nextChunkId = 1;
+
+let sendQueue = [];
+let sending = false;
+let playbackQueue = [];
+let playing = false;
+let activeAudioUrl = null;
+
+const TARGET_RATE = 16000;
+const SILENCE_MS = 750;
+const MAX_CHUNK_MS = 6000;
+const MIN_CHUNK_MS = 700;
+const RMS_THRESHOLD = 0.018;
+
+function status(message) {
+  $("status").textContent = message;
+}
+
+function formatMs(value) {
+  return `${Math.round(value || 0)} ms`;
+}
+
+socket.on("connect", () => {
+  status(running
+    ? "Đã kết nối lại backend."
+    : "Đã kết nối backend. Sẵn sàng.");
+});
+
+socket.on("disconnect", () => {
+  status("Mất kết nối backend. Đang chờ kết nối lại...");
+});
+
+socket.on("connection_status", data => {
+  if (data.connected) status("Backend đã sẵn sàng.");
+});
+
+socket.on("translation_result", data => {
+  if (!running && data.chunk_id === undefined) return;
+
+  if (data.english) {
+    $("english").textContent = data.english;
+    $("vietnamese").textContent = data.vietnamese || "Chưa có bản dịch.";
+    $("sttTime").textContent = formatMs(data.stt_ms);
+    $("translationTime").textContent = formatMs(data.translation_ms);
+    $("totalTime").textContent = formatMs(data.total_ms);
+
+    const entry = document.createElement("div");
+    entry.className = "entry";
+
+    const en = document.createElement("div");
+    const enLabel = document.createElement("strong");
+    enLabel.textContent = "EN: ";
+    en.append(enLabel, document.createTextNode(data.english));
+
+    const vi = document.createElement("div");
+    const viLabel = document.createElement("strong");
+    viLabel.textContent = "VI: ";
+    vi.append(viLabel, document.createTextNode(data.vietnamese || ""));
+
+    entry.append(en, vi);
+    if ($("history").textContent === "Chưa có kết quả.") {
+      $("history").textContent = "";
+    }
+    $("history").prepend(entry);
+
+    if (data.audio_base64 && $("ttsToggle").checked) {
+      playbackQueue.push(data.audio_base64);
+      playNextAudio();
+    }
+  }
+
+  status(running
+    ? "Đang nghe và xử lý các cụm lời nói..."
+    : "Đã nhận kết quả của cụm cuối.");
+  pumpQueue();
+});
+
+socket.on("translation_error", data => {
+  status("Lỗi xử lý: " + (data.error || "Không rõ nguyên nhân."));
+  pumpQueue();
+});
+
+socket.on("chunk_skipped", () => {
+  pumpQueue();
+});
+
+function downsample(input, inputRate, outputRate) {
+  if (inputRate === outputRate) return input;
+
+  const ratio = inputRate / outputRate;
+  const outputLength = Math.floor(input.length / ratio);
+  const output = new Float32Array(outputLength);
+
+  for (let i = 0; i < outputLength; i++) {
+    const start = Math.floor(i * ratio);
+    const end = Math.min(Math.floor((i + 1) * ratio), input.length);
+
+    let sum = 0;
+    for (let j = start; j < end; j++) sum += input[j];
+
+    output[i] = end > start ? sum / (end - start) : 0;
+  }
+
+  return output;
+}
+
+function encodeWav(samples, sampleRate) {
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+
+  function writeString(offset, text) {
+    for (let i = 0; i < text.length; i++) {
+      view.setUint8(offset + i, text.charCodeAt(i));
+    }
+  }
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+
+  let offset = 44;
+  for (const sample of samples) {
+    const clipped = Math.max(-1, Math.min(1, sample));
+    view.setInt16(
+      offset,
+      clipped < 0 ? clipped * 32768 : clipped * 32767,
+      true
+    );
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      resolve(result.substring(result.indexOf(",") + 1));
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function appendPcm(samples) {
+  pcmBuffer.push(samples);
+  bufferedSamples += samples.length;
+}
+
+function finalizeChunk() {
+  if (!bufferedSamples) return;
+
+  const totalLength = bufferedSamples;
+  const merged = new Float32Array(totalLength);
+  let offset = 0;
+
+  for (const part of pcmBuffer) {
+    merged.set(part, offset);
+    offset += part.length;
+  }
+
+  pcmBuffer = [];
+  bufferedSamples = 0;
+  silenceSamples = 0;
+  speechStarted = false;
+
+  if (totalLength < TARGET_RATE * MIN_CHUNK_MS / 1000) return;
+
+  const wavBlob = encodeWav(merged, TARGET_RATE);
+  sendQueue.push({
+    id: nextChunkId++,
+    blob: wavBlob
+  });
+
+  pumpQueue();
+}
+
+async function pumpQueue() {
+  if (sending || !sendQueue.length || !socket.connected) return;
+
+  sending = true;
+  const item = sendQueue.shift();
+
+  try {
+    const audio = await blobToBase64(item.blob);
+    socket.emit("audio_chunk", {
+      chunk_id: item.id,
+      audio,
+      tts_enabled: $("ttsToggle").checked
+    });
+    status(`Đang xử lý cụm ${item.id}...`);
+  } catch (error) {
+    status("Không gửi được audio: " + error.message);
+    sending = false;
+    return;
+  }
+
+  // Đợi backend trả kết quả hoặc báo lỗi trước khi gửi cụm tiếp theo.
+  window.currentChunkId = item.id;
+}
+
+function finishCurrentChunk() {
+  sending = false;
+  pumpQueue();
+}
+
+const originalPumpQueue = pumpQueue;
+pumpQueue = async function() {
+  if (sending || !sendQueue.length || !socket.connected) return;
+
+  sending = true;
+  const item = sendQueue.shift();
+
+  try {
+    const audio = await blobToBase64(item.blob);
+    socket.emit("audio_chunk", {
+      chunk_id: item.id,
+      audio,
+      tts_enabled: $("ttsToggle").checked
+    });
+    window.currentChunkId = item.id;
+    status(`Đang xử lý cụm ${item.id}...`);
+  } catch (error) {
+    sending = false;
+    status("Không gửi được audio: " + error.message);
+    pumpQueue();
+  }
+};
+
+function onChunkFinished() {
+  sending = false;
+  pumpQueue();
+}
+
+socket.on("translation_result", onChunkFinished);
+socket.on("translation_error", onChunkFinished);
+socket.on("chunk_skipped", onChunkFinished);
+
+async function playNextAudio() {
+  if (playing || !$("ttsToggle").checked || !playbackQueue.length) return;
+
+  playing = true;
+  try {
+    const base64 = playbackQueue.shift();
+    const raw = atob(base64);
+    const bytes = new Uint8Array(raw.length);
+
+    for (let i = 0; i < raw.length; i++) {
+      bytes[i] = raw.charCodeAt(i);
+    }
+
+    const blob = new Blob([bytes], { type: "audio/wav" });
+    if (activeAudioUrl) URL.revokeObjectURL(activeAudioUrl);
+    activeAudioUrl = URL.createObjectURL(blob);
+
+    const audio = new Audio(activeAudioUrl);
+    audio.onended = () => {
+      playing = false;
+      playNextAudio();
+    };
+    audio.onerror = () => {
+      playing = false;
+      status("Không phát được audio TTS.");
+      playNextAudio();
+    };
+
+    await audio.play();
+  } catch (error) {
+    playing = false;
+    status("Trình duyệt không thể phát TTS: " + error.message);
+    playNextAudio();
+  }
+}
+
+$("startButton").addEventListener("click", async () => {
+  if (running) return;
+
+  if (!socket.connected) {
+    status("Chưa kết nối được backend.");
+    return;
+  }
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true
+      }
+    });
+
+    audioContext = new AudioContext();
+    sourceNode = audioContext.createMediaStreamSource(mediaStream);
+    processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    pcmBuffer = [];
+    bufferedSamples = 0;
+    silenceSamples = 0;
+    speechStarted = false;
+    sendQueue = [];
+    running = true;
+
+    processor.onaudioprocess = event => {
+      if (!running) return;
+
+      const input = event.inputBuffer.getChannelData(0);
+      const pcm = downsample(
+        new Float32Array(input),
+        audioContext.sampleRate,
+        TARGET_RATE
+      );
+
+      let energy = 0;
+      for (const value of pcm) energy += value * value;
+      const rms = Math.sqrt(energy / Math.max(1, pcm.length));
+
+      if (rms >= RMS_THRESHOLD) {
+        speechStarted = true;
+        silenceSamples = 0;
+      } else if (speechStarted) {
+        silenceSamples += pcm.length;
+      }
+
+      if (speechStarted) appendPcm(pcm);
+
+      const durationMs = bufferedSamples / TARGET_RATE * 1000;
+      const silenceMs = silenceSamples / TARGET_RATE * 1000;
+
+      if (
+        speechStarted &&
+        (silenceMs >= SILENCE_MS || durationMs >= MAX_CHUNK_MS)
+      ) {
+        finalizeChunk();
+      }
+    };
+
+    sourceNode.connect(processor);
+    processor.connect(audioContext.destination);
+
+    $("startButton").disabled = true;
+    $("stopButton").disabled = false;
+    status("Đang nghe. Hãy nói tiếng Anh; hệ thống sẽ tự chia cụm.");
+  } catch (error) {
+    running = false;
+    mediaStream?.getTracks().forEach(track => track.stop());
+    status("Không mở được microphone: " + error.message);
+  }
+});
+
+$("stopButton").addEventListener("click", async () => {
+  if (!running) return;
+
+  running = false;
+
+  if (processor) {
+    processor.onaudioprocess = null;
+    processor.disconnect();
+  }
+  if (sourceNode) sourceNode.disconnect();
+
+  mediaStream?.getTracks().forEach(track => track.stop());
+  mediaStream = null;
+
+  if (audioContext) {
+    await audioContext.close();
+    audioContext = null;
+  }
+
+  // Gửi phần audio cuối cùng nếu có.
+  finalizeChunk();
+
+  $("startButton").disabled = false;
+  $("stopButton").disabled = true;
+  status("Đã dừng thu âm. Các cụm đang chờ vẫn được xử lý.");
+});
+
+$("ttsToggle").addEventListener("change", event => {
+  if (!event.target.checked) {
+    playbackQueue = [];
+    status("TTS đã tắt. Phiên dịch vẫn tiếp tục.");
+  } else {
+    status("TTS đã bật. Các bản dịch mới sẽ được đọc tự động.");
+    playNextAudio();
+  }
+});
+
+$("clearButton").addEventListener("click", () => {
+  $("english").textContent = "Lời nói tiếng Anh sẽ xuất hiện ở đây.";
+  $("vietnamese").textContent = "Bản dịch sẽ xuất hiện ở đây.";
+  $("sttTime").textContent = "—";
+  $("translationTime").textContent = "—";
+  $("totalTime").textContent = "—";
+  $("history").textContent = "Chưa có kết quả.";
+  playbackQueue = [];
+});
+
+</script>
+</body>
+</html>
