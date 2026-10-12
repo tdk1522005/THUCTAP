@@ -56,3 +56,18 @@ def test_transcribe_returns_expected_format():
     audio_file = call.kwargs["file"]
     assert audio_file.name == "audio.wav"
     assert audio_file.read(4) == b"RIFF"
+
+def test_transcribe_propagates_api_error():
+    client = MagicMock()
+    client.audio.transcriptions.create.side_effect = RuntimeError(
+        "API connection failed"
+    )
+    transcriber = OpenAITranscriber(client=client)
+
+    audio = np.zeros(1600, dtype=np.float32)
+
+    try:
+        transcriber.transcribe(audio)
+        assert False, "Expected RuntimeError to be raised"
+    except RuntimeError as exc:
+        assert str(exc) == "API connection failed"

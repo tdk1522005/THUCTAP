@@ -1,25 +1,29 @@
-﻿import queue
+﻿
+import queue
 import threading
 import time
 from collections import deque
 
 import numpy as np
 import sounddevice as sd
+from openai import (
+    APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    RateLimitError,
+)
 
 from stt.openai_transcriber import OpenAITranscriber
 from stt.sentence_buffer import SentenceBuffer
 from translation.openai_translator import OpenAITranslationEngine
 
 
-# =========================
-# CONFIGURATION
-# =========================
-
 SAMPLE_RATE = 16000
 CHANNELS = 1
 BLOCK_SECONDS = 0.1
 
-# Silence detection
 RMS_THRESHOLD = 0.008
 SILENCE_SECONDS = 0.8
 MIN_SPEECH_SECONDS = 0.4
@@ -27,16 +31,35 @@ PRE_ROLL_SECONDS = 0.2
 TRAILING_AUDIO_SECONDS = 0.2
 
 
-# =========================
-# STT
-# =========================
-
 def calculate_rms(audio):
     if len(audio) == 0:
         return 0.0
 
     audio = np.asarray(audio, dtype=np.float32)
     return float(np.sqrt(np.mean(audio ** 2)))
+
+
+def format_api_error(exc):
+    """Return a readable message for common OpenAI API errors."""
+    if isinstance(exc, AuthenticationError):
+        return "API key không hợp lệ hoặc không có quyền truy cập."
+
+    if isinstance(exc, RateLimitError):
+        return "API vượt giới hạn tốc độ hoặc hạn mức tài khoản."
+
+    if isinstance(exc, APITimeoutError):
+        return "Yêu cầu API hết thời gian chờ."
+
+    if isinstance(exc, APIConnectionError):
+        return "Không thể kết nối OpenAI API. Kiểm tra mạng."
+
+    if isinstance(exc, BadRequestError):
+        return f"Yêu cầu API không hợp lệ: {exc}"
+
+    if isinstance(exc, APIStatusError):
+        return f"OpenAI API trả về HTTP {exc.status_code}: {exc}"
+
+    return f"{type(exc).__name__}: {exc}"
 
 
 def transcribe_audio(transcriber, audio):
@@ -63,7 +86,7 @@ def transcription_worker(transcriber, stt_queue, result_queue):
                 error = None
             except Exception as exc:
                 text = ""
-                error = str(exc)
+                error = format_api_error(exc)
 
             result_queue.put({
                 "segment_id": segment_id,
@@ -79,10 +102,6 @@ def transcription_worker(transcriber, stt_queue, result_queue):
         finally:
             stt_queue.task_done()
 
-
-# =========================
-# TRANSLATION
-# =========================
 
 def translation_worker(
     translator,
@@ -111,7 +130,7 @@ def translation_worker(
             except Exception as exc:
                 translated_text = ""
                 translation_latency_ms = 0
-                error = str(exc)
+                error = format_api_error(exc)
 
             translation_result_queue.put({
                 "segment_id": segment_id,
@@ -127,15 +146,11 @@ def translation_worker(
             translation_queue.task_done()
 
 
-# =========================
-# RESULT HANDLING
-# =========================
-
 def handle_stt_result(result, translation_queue, sentence_buffer):
     if result["error"]:
         print(
-            f"\n[STT ERROR] Segment "
-            f"{result['segment_id']}: {result['error']}"
+            f"\n[STT ERROR] Segment {result['segment_id']}: "
+            f"{result['error']}"
         )
         return
 
@@ -148,8 +163,6 @@ def handle_stt_result(result, translation_queue, sentence_buffer):
     if not source_text:
         return
 
-    # Flush at the segment boundary so text without punctuation
-    # is not delayed until a later utterance.
     first_sentence = sentence_buffer.add(source_text)
     sentences = []
 
@@ -175,8 +188,8 @@ def handle_stt_result(result, translation_queue, sentence_buffer):
 def handle_translation_result(result):
     if result["error"]:
         print(
-            f"[TRANSLATION ERROR] Segment "
-            f"{result['segment_id']}: {result['error']}"
+            f"[TRANSLATION ERROR] Segment {result['segment_id']}: "
+            f"{result['error']}"
         )
         return
 
@@ -199,14 +212,16 @@ def handle_translation_result(result):
     print("-" * 50)
 
 
-# =========================
-# MAIN
-# =========================
-
 def main():
     print("Initializing OpenAI STT and translation...")
-    transcriber = OpenAITranscriber()
-    translator = OpenAITranslationEngine()
+
+    try:
+        transcriber = OpenAITranscriber()
+        translator = OpenAITranslationEngine()
+    except Exception as exc:
+        print(f"[INITIALIZATION ERROR] {format_api_error(exc)}")
+        return
+
     print(f"STT model: {transcriber.model}")
     print(f"Translation model: {translator.model}")
 

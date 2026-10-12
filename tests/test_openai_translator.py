@@ -38,3 +38,16 @@ def test_translate_calls_api_and_returns_expected_format():
         input="I want to go to the airport.",
         max_output_tokens=500,
     )
+
+def test_translate_propagates_api_error():
+    client = MagicMock()
+    client.responses.create.side_effect = RuntimeError(
+        "API connection failed"
+    )
+    engine = OpenAITranslationEngine(client=client)
+
+    try:
+        engine.translate("I want to go to the airport.")
+        assert False, "Expected RuntimeError to be raised"
+    except RuntimeError as exc:
+        assert str(exc) == "API connection failed"
