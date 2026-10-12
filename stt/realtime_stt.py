@@ -1,4 +1,6 @@
-﻿
+﻿import io
+
+from translation.openai_tts import OpenAITTSEngine
 import queue
 import threading
 import time
@@ -6,6 +8,7 @@ from collections import deque
 
 import numpy as np
 import sounddevice as sd
+import soundfile as sf
 from openai import (
     APIConnectionError,
     APIStatusError,
@@ -25,7 +28,7 @@ CHANNELS = 1
 BLOCK_SECONDS = 0.1
 
 RMS_THRESHOLD = 0.008
-SILENCE_SECONDS = 0.8
+SILENCE_SECONDS = 0.5
 MIN_SPEECH_SECONDS = 0.4
 PRE_ROLL_SECONDS = 0.2
 TRAILING_AUDIO_SECONDS = 0.2
@@ -146,6 +149,50 @@ def translation_worker(
             translation_queue.task_done()
 
 
+
+def tts_worker(tts_engine, tts_queue):
+    """Synthesize and play Vietnamese audio sequentially."""
+    while True:
+        item = tts_queue.get()
+
+        try:
+            if item is None:
+                return
+
+            segment_id, text = item
+
+            try:
+                result = tts_engine.synthesize(text)
+                audio_bytes = result["audio"]
+
+                if not audio_bytes:
+                    continue
+
+                with io.BytesIO(audio_bytes) as audio_buffer:
+                    audio_data, sample_rate = sf.read(
+                        audio_buffer,
+                        dtype="float32",
+                    )
+
+                print(
+                    f"[TTS] Segment {segment_id}: "
+                    f"{result['latency_ms']:.0f} ms synthesis"
+                )
+
+                sd.play(audio_data, samplerate=sample_rate)
+                sd.wait()
+
+            except Exception as exc:
+                print(
+                    f"[TTS ERROR] Segment {segment_id}: "
+                    f"{format_api_error(exc)}"
+                )
+
+        finally:
+            tts_queue.task_done()
+
+
+
 def handle_stt_result(result, translation_queue, sentence_buffer):
     if result["error"]:
         print(
@@ -171,21 +218,22 @@ def handle_stt_result(result, translation_queue, sentence_buffer):
 
     sentences.extend(sentence_buffer.pop_sentences())
 
+    # Giu hanh vi cu: chuyen phan van ban con lai di dich ngay.
     remaining_text = sentence_buffer.flush()
     if remaining_text:
         sentences.append(remaining_text)
 
     for sentence_index, sentence in enumerate(sentences):
+        print(f"Sentence {sentence_index + 1}: {sentence}")
         translation_queue.put((
             result["segment_id"],
             sentence,
             result["latency_ms"],
             result["speech_end_time"],
         ))
-        print(f"Sentence {sentence_index + 1}: {sentence}")
 
 
-def handle_translation_result(result):
+def handle_translation_result(result, tts_queue=None):
     if result["error"]:
         print(
             f"[TRANSLATION ERROR] Segment {result['segment_id']}: "
@@ -198,7 +246,11 @@ def handle_translation_result(result):
         display_time - result["speech_end_time"]
     ) * 1000
 
-    print(f"Vietnamese: {result['translated_text']}")
+    translated_text = result["translated_text"].strip()
+    print(f"Vietnamese: {translated_text}")
+
+    if tts_queue is not None and translated_text:
+        tts_queue.put((result["segment_id"], translated_text))
     print(f"STT latency: {result['stt_latency_ms']:.0f} ms")
     print(
         "Translation latency: "
@@ -218,6 +270,7 @@ def main():
     try:
         transcriber = OpenAITranscriber()
         translator = OpenAITranslationEngine()
+        tts_engine = OpenAITTSEngine()
     except Exception as exc:
         print(f"[INITIALIZATION ERROR] {format_api_error(exc)}")
         return
@@ -230,6 +283,7 @@ def main():
     stt_result_queue = queue.Queue()
     translation_queue = queue.Queue()
     translation_result_queue = queue.Queue()
+    tts_queue = queue.Queue()
 
     sentence_buffer = SentenceBuffer()
 
@@ -259,8 +313,15 @@ def main():
         daemon=True,
     )
 
+    tts_thread = threading.Thread(
+        target=tts_worker,
+        args=(tts_engine, tts_queue),
+        daemon=True,
+    )
+
     stt_thread.start()
     translation_thread.start()
+    tts_thread.start()
 
     speech_blocks = []
     speech_samples = 0
@@ -306,7 +367,7 @@ def main():
                     except queue.Empty:
                         break
 
-                    handle_translation_result(result)
+                    handle_translation_result(result, tts_queue)
 
                 try:
                     block = mic_queue.get(timeout=0.05)
@@ -400,13 +461,24 @@ def main():
                 translation_queue,
                 sentence_buffer,
             )
-
+        remaining_text = sentence_buffer.flush()
+        if remaining_text:
+            translation_queue.put((
+                next_segment_id - 1,
+                remaining_text,
+                0.0,
+                time.perf_counter(),
+            ))
         translation_queue.put(None)
         translation_thread.join()
 
         while not translation_result_queue.empty():
             result = translation_result_queue.get()
-            handle_translation_result(result)
+            handle_translation_result(result, tts_queue)
+
+        # Cho TTS doc het cac cau dang cho roi moi ket thuc.
+        tts_queue.put(None)
+        tts_thread.join()
 
         print("\nPipeline stopped.")
 
