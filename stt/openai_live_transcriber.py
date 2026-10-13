@@ -41,16 +41,12 @@ class OpenAILiveTranscriber:
                 "type": "transcription",
                 "audio": {
                     "input": {
-                        "format": {"type": "audio/pcm", "rate": 16000},
+                        "format": {"type": "audio/pcm", "rate": 24000},
                         "transcription": {
                             "model": self.model,
-                            "language": self.language,
+                            "languages": [self.language],
                         },
-                        "turn_detection": {
-                            "type": "server_vad",
-                            "silence_duration_ms": 500,
-                            "prefix_padding_ms": 300,
-                        },
+                        "turn_detection": None,
                     }
                 },
             },
