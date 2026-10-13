@@ -1,4 +1,4 @@
-﻿openai==3.29.0
+﻿openai[realtime]==3.29.0
 python-dotenv==1.2.4
 numpy==2.5.3
 sounddevice==0.5.6
