@@ -1,10 +1,10 @@
 """Thread/asyncio bridge for one Gemini Live session per Socket.IO client."""
 import asyncio
 import base64
+import logging
 import threading
 import time
 
-from flask import current_app
 from flask_socketio import emit
 
 from stt.gemini_live_transcriber import GeminiLiveTranscriber
@@ -83,7 +83,7 @@ class _LiveSession:
                     "audio_base64": audio_b64,
                 })
             except Exception:
-                current_app.logger.exception("Live translation failed")
+                logging.getLogger(__name__).exception("Live translation failed")
 
         try:
             await self.engine.start(on_transcript)
