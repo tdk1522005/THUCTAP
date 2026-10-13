@@ -106,7 +106,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 <main>
   <header>
     <h1>Speech Translator</h1>
-    <p class="muted">English → Vietnamese · Streaming theo cụm</p>
+    <p class="muted">English → Vietnamese · OpenAI/Gemini Realtime transcription</p>
   </header>
 
   <section class="panel">
@@ -132,6 +132,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       <div class="result-box">
         <div class="label">TIẾNG VIỆT · TRANSLATION</div>
         <div id="vietnamese" class="content">Bản dịch sẽ xuất hiện ở đây.</div>
+        <div class="label" style="margin-top:12px">DỰ ĐOÁN CÂU ĐANG NÓI</div>
+        <div id="prediction" class="content muted">Phần tiếp theo sẽ xuất hiện tại đây.</div>
       </div>
     </div>
     <div class="metrics">
@@ -172,8 +174,16 @@ let sending = false;
 let playbackQueue = [];
 let playing = false;
 let activeAudioUrl = null;
+let liveMode = false;
+let activeProvider = "openai";
+let liveReady = false;
+let liveAudioQueue = [];
+let openaiPreRoll = [];
+let finalizedEnglish = [];
+let finalizedVietnamese = [];
+let currentInterim = "";
 
-const TARGET_RATE = 16000;
+let TARGET_RATE = 16000;
 const SILENCE_MS = 750;
 const MAX_CHUNK_MS = 6000;
 const MIN_CHUNK_MS = 700;
@@ -198,8 +208,101 @@ socket.on("disconnect", () => {
 });
 
 socket.on("connection_status", data => {
-  if (data.connected) status("Backend đã sẵn sàng.");
+  if (data.connected) {
+    activeProvider = data.provider || "openai";
+    liveMode = activeProvider === "gemini" || activeProvider === "openai";
+    TARGET_RATE = activeProvider === "openai" ? 24000 : 16000;
+    status(liveMode ? `Backend sẵn sàng · ${data.provider === "openai" ? "OpenAI" : "Gemini"} Realtime.` : "Backend đã sẵn sàng · xử lý theo cụm.");
+  }
 });
+
+function encodePcm16Base64(samples) {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < samples.length; i++) {
+    const value = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(i * 2, value < 0 ? value * 32768 : value * 32767, true);
+  }
+  let binary = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + step, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+socket.on("live_ready", () => {
+  liveReady = true;
+  for (const audio of liveAudioQueue) socket.emit("live_audio", { audio });
+  liveAudioQueue = [];
+  status(`Realtime đã kết nối · đang nhận giọng nói (${activeProvider === "openai" ? "OpenAI" : "Gemini"}).`);
+});
+
+function renderEnglishTranscript() {
+  const lines = finalizedEnglish.slice();
+  if (currentInterim) lines.push(currentInterim + " …");
+  $("english").textContent = lines.join("\n") || "Lời nói tiếng Anh sẽ xuất hiện ở đây.";
+}
+
+socket.on("live_transcript", data => {
+  if (data.kind === "interim") {
+    currentInterim = data.text || "";
+    renderEnglishTranscript();
+    status("Đang nhận diện lời nói...");
+  } else if (data.kind === "final") {
+    const finalText = (data.text || "").trim();
+    currentInterim = "";
+    if (finalText && finalizedEnglish[finalizedEnglish.length - 1] !== finalText) finalizedEnglish.push(finalText);
+    renderEnglishTranscript();
+    status("Đã nhận câu tiếng Anh · đang dịch...");
+  }
+});
+
+socket.on("live_translation", data => {
+  if (data.english && !finalizedEnglish.includes(data.english)) { finalizedEnglish.push(data.english); renderEnglishTranscript(); }
+  if (data.vietnamese) finalizedVietnamese.push(data.vietnamese);
+  $("vietnamese").textContent = finalizedVietnamese.join("\n") || "Chưa có bản dịch.";
+  $("translationTime").textContent = formatMs(data.translation_ms);
+  $("totalTime").textContent = formatMs(data.total_ms);
+  const entry = document.createElement("div");
+  entry.className = "entry";
+  const en = document.createElement("div");
+  const enLabel = document.createElement("strong"); enLabel.textContent = "EN: ";
+  en.append(enLabel, document.createTextNode(data.english || ""));
+  const vi = document.createElement("div");
+  const viLabel = document.createElement("strong"); viLabel.textContent = "VI: ";
+  vi.append(viLabel, document.createTextNode(data.vietnamese || ""));
+  entry.append(en, vi);
+  if ($("history").textContent === "Chưa có kết quả.") $("history").textContent = "";
+  $("history").prepend(entry);
+  status("Realtime · tiếp tục lắng nghe...");
+});
+
+socket.on("live_tts_audio", data => {
+  if (data.audio_base64 && $("ttsToggle").checked) {
+    playbackQueue.push(data.audio_base64);
+    playNextAudio();
+  }
+});
+socket.on("live_tts_error", data => {
+  status(data.error || "Bản dịch đã có nhưng TTS gặp lỗi.");
+});
+
+socket.on("live_prediction", data => {
+  const fixed = data.fixed || "";
+  const continuation = data.continuation || "";
+  const full = data.full || fixed;
+  $("prediction").textContent = continuation ? `${fixed}  →  ${continuation}\n${full}` : full;
+});
+socket.on("live_translation_error", data => {
+  const message = data.error || "Không dịch được câu vừa nhận.";
+  status(message.includes("503") || message.includes("UNAVAILABLE") ? "API đang quá tải (503). Câu tiếng Anh vẫn được giữ; hãy thử lại sau." : message);
+});
+socket.on("live_tts_status", data => {
+  status(data.enabled ? "TTS đã bật cho các bản dịch tiếp theo." : "TTS đã tắt.");
+});
+socket.on("live_error", data => status("Lỗi Realtime: " + (data.error || "không rõ nguyên nhân.")));
+socket.on("live_stopped", () => { liveReady = false; liveAudioQueue = []; });
 
 socket.on("translation_result", data => {
   if (!running && data.chunk_id === undefined) return;
@@ -478,6 +581,12 @@ $("startButton").addEventListener("click", async () => {
     speechStarted = false;
     sendQueue = [];
     running = true;
+    liveReady = false;
+    liveAudioQueue = [];
+    openaiPreRoll = [];
+    speechStarted = false;
+    silenceSamples = 0;
+    if (liveMode) socket.emit("live_start", { tts_enabled: $("ttsToggle").checked });
 
     processor.onaudioprocess = event => {
       if (!running) return;
@@ -488,6 +597,50 @@ $("startButton").addEventListener("click", async () => {
         audioContext.sampleRate,
         TARGET_RATE
       );
+
+      if (liveMode) {
+        let energy = 0;
+        for (const value of pcm) energy += value * value;
+        const rms = Math.sqrt(energy / Math.max(1, pcm.length));
+        const encoded = encodePcm16Base64(pcm);
+
+        const sendLiveAudio = chunk => {
+          if (liveReady) {
+            socket.emit("live_audio", { audio: chunk });
+          } else {
+            liveAudioQueue.push(chunk);
+            if (liveAudioQueue.length > 30) liveAudioQueue.shift();
+          }
+        };
+
+        if (activeProvider === "openai") {
+          if (rms >= RMS_THRESHOLD) {
+            if (!speechStarted) {
+              for (const previous of openaiPreRoll) sendLiveAudio(previous);
+              openaiPreRoll = [];
+            }
+            speechStarted = true;
+            silenceSamples = 0;
+            sendLiveAudio(encoded);
+          } else if (speechStarted) {
+            silenceSamples += pcm.length;
+            sendLiveAudio(encoded);
+            // gpt-live-transcribe has no server VAD; commit after 550 ms silence.
+            if (liveReady && silenceSamples >= TARGET_RATE * 0.55) {
+              socket.emit("live_commit");
+              speechStarted = false;
+              silenceSamples = 0;
+              openaiPreRoll = [];
+            }
+          } else {
+            openaiPreRoll.push(encoded);
+            if (openaiPreRoll.length > 3) openaiPreRoll.shift();
+          }
+        } else {
+          sendLiveAudio(encoded);
+        }
+        return;
+      }
 
       let energy = 0;
       for (const value of pcm) energy += value * value;
@@ -518,7 +671,9 @@ $("startButton").addEventListener("click", async () => {
 
     $("startButton").disabled = true;
     $("stopButton").disabled = false;
-    status("Đang nghe. Hãy nói tiếng Anh; hệ thống sẽ tự chia cụm.");
+    status(liveMode
+      ? "Đang mở phiên Realtime... hãy nói tiếng Anh."
+      : "Đang nghe. Hãy nói tiếng Anh; hệ thống sẽ tự chia cụm.");
   } catch (error) {
     running = false;
     mediaStream?.getTracks().forEach(track => track.stop());
@@ -545,15 +700,28 @@ $("stopButton").addEventListener("click", async () => {
     audioContext = null;
   }
 
-  // Gửi phần audio cuối cùng nếu có.
-  finalizeChunk();
+  // Gửi phần audio cuối cùng nếu đang dùng chế độ xử lý theo cụm.
+  if (liveMode) {
+    if (activeProvider === "openai" && liveReady && speechStarted) socket.emit("live_commit");
+    socket.emit("live_stop");
+    liveReady = false;
+    liveAudioQueue = [];
+    openaiPreRoll = [];
+  } else {
+    finalizeChunk();
+  }
 
   $("startButton").disabled = false;
   $("stopButton").disabled = true;
-  status("Đã dừng thu âm. Các cụm đang chờ vẫn được xử lý.");
+  status(liveMode
+    ? "Đã dừng phiên Realtime."
+    : "Đã dừng thu âm. Các cụm đang chờ vẫn được xử lý.");
 });
 
 $("ttsToggle").addEventListener("change", event => {
+  if (running && liveMode) {
+    socket.emit("live_tts_toggle", { enabled: event.target.checked });
+  }
   if (!event.target.checked) {
     playbackQueue = [];
     status("TTS đã tắt. Phiên dịch vẫn tiếp tục.");
@@ -564,8 +732,12 @@ $("ttsToggle").addEventListener("change", event => {
 });
 
 $("clearButton").addEventListener("click", () => {
+  finalizedEnglish = [];
+  finalizedVietnamese = [];
+  currentInterim = "";
   $("english").textContent = "Lời nói tiếng Anh sẽ xuất hiện ở đây.";
   $("vietnamese").textContent = "Bản dịch sẽ xuất hiện ở đây.";
+  $("prediction").textContent = "Phần tiếp theo sẽ xuất hiện tại đây.";
   $("sttTime").textContent = "—";
   $("translationTime").textContent = "—";
   $("totalTime").textContent = "—";

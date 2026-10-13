@@ -1,13 +1,13 @@
 # THUCTAP — Real-Time Speech Translation
 
-Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Project hỗ trợ giao diện web và các module thử nghiệm mô hình STT, dịch thuật chạy local.
+Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Pipeline web mặc định dùng OpenAI; Gemini chỉ được chọn khi đặt `AI_PROVIDER=gemini`; các module local và benchmark hiện có được giữ nguyên. Chế độ OpenAI và Gemini Live truyền audio liên tục và hiển thị transcript tạm thời/final; bản dịch tiếng Việt được xử lý tuần tự sau mỗi câu hoàn chỉnh.
 
 ## 1. Công nghệ sử dụng
 
 - **Python 3.12**
-- **Speech-to-Text (STT):** OpenAI API và Faster-Whisper
-- **Machine Translation:** OpenAI API và mô hình dịch local
-- **Text-to-Speech (TTS):** OpenAI API
+- **Speech-to-Text (STT):** Gemini API, OpenAI API và Faster-Whisper
+- **Machine Translation:** Gemini API, OpenAI API và mô hình dịch local
+- **Text-to-Speech (TTS):** Gemini API và OpenAI API
 - **Web:** Flask, Flask-SocketIO
 - **Audio processing:** SoundFile, NumPy, imageio-ffmpeg
 - **Testing:** pytest
@@ -16,8 +16,8 @@
 
 - Python 3.12 hoặc phiên bản tương thích với các dependencies.
 - Git.
-- Kết nối Internet khi sử dụng OpenAI API.
-- OpenAI API key có quyền truy cập các model được cấu hình.
+- Kết nối Internet và API key của nhà cung cấp đang chọn (OpenAI mặc định; Gemini là tùy chọn).
+- Model đã cấu hình phải được tài khoản API của bạn hỗ trợ.
 - Microphone và loa/tai nghe nếu sử dụng chức năng thu âm và phát giọng nói.
 
 Các script sử dụng mô hình local có thể cần tải model lần đầu và tiêu tốn RAM/CPU đáng kể.
@@ -53,12 +53,12 @@ Nếu PowerShell chặn việc chạy script, có thể sử dụng Command Prom
 
 ```powershell
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements-gemini.txt
 ```
 
 Nếu cài đặt gặp lỗi, hãy kiểm tra phiên bản Python và thông báo lỗi trước khi cài thêm package thủ công.
 
-## 4. Cấu hình OpenAI API
+## 4. Cấu hình OpenAI (mặc định) hoặc Gemini
 
 Tạo file `.env` từ file mẫu:
 
@@ -66,21 +66,20 @@ Tạo file `.env` từ file mẫu:
 Copy-Item .env.example .env
 ```
 
-Mở `.env` và cấu hình các biến:
+Mở `.env`. Để dùng OpenAI (mặc định), cấu hình:
 
 ```env
-OPENAI_API_KEY=your_api_key_here
-
-OPENAI_STT_MODEL=gpt-4o-mini-transcribe
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_REALTIME_SESSION_MODEL=gpt-realtime
+OPENAI_LIVE_MODEL=gpt-live-transcribe
 OPENAI_TRANSLATION_MODEL=gpt-4.1-mini
-
 OPENAI_TTS_MODEL=gpt-4o-mini-tts
-OPENAI_TTS_VOICE=alloy
 ```
 
-Thay `your_api_key_here` bằng API key của bạn. Không chia sẻ API key hoặc commit file `.env` lên GitHub.
+Muốn dùng Gemini, đặt `AI_PROVIDER=gemini` và điền `GEMINI_API_KEY`. Nếu `AI_PROVIDER` bị bỏ trống, ứng dụng mặc định chọn OpenAI. Không chia sẻ API key hoặc commit file `.env` lên GitHub.
 
-**Lưu ý:** sử dụng OpenAI API có thể phát sinh chi phí tùy theo model và lượng sử dụng. Không chạy benchmark gọi API thật nếu chưa kiểm tra chi phí.
+**Lưu ý:** model có thể phụ thuộc quyền truy cập/tình trạng cung cấp của tài khoản. Chưa thực hiện API call thật trong bước tích hợp này; unit test dùng mock và không tiêu hao API credit. Các API có thể phát sinh chi phí khi chạy ứng dụng.
 
 ## 5. Chạy giao diện web
 
@@ -227,11 +226,25 @@ pip install -r requirements.txt
 Tại thời điểm cập nhật tài liệu, bộ test đã chạy thành công với kết quả:
 
 ```text
-28 passed
+41 passed in 6.41s
 ```
 
-Thời gian chạy ghi nhận ở một lần kiểm thử là 5.90 giây. Đây là kết quả tại thời điểm kiểm tra, không phải cam kết về thời gian chạy trên mọi máy tính.
+Kết quả này được ghi nhận khi chạy `python -m pytest tests/ -q` trên máy phát triển ngày 2026-10-13. Thời gian có thể khác tùy cấu hình máy. Đây là unit test dùng mock; không xác nhận API trực tiếp.
 
 ---
 
 **Repository:** https://github.com/tdk1522005/THUCTAP
+
+
+## Gemini Live realtime web mode
+
+When `AI_PROVIDER=gemini`, the browser streams mono PCM audio at 16 kHz to a server-side Gemini Live session. Interim transcription is displayed immediately; final transcription is translated to Vietnamese, with optional TTS. The live sentence prediction follows the demo pattern: clean fillers/repeated words, debounce for 0.6 seconds, cancel stale predictions when new interim text arrives, and keep the last three final sentences as context.
+
+Configuration:
+
+- `GEMINI_LIVE_MODEL=gemini-3.5-transcribe-live`
+- `GEMINI_PREDICTION_ENABLED=true` (set to `false` to reduce additional text-model requests/credit usage)
+- `GEMINI_PREDICTION_MODEL=gemini-3.8-flash`
+- `GEMINI_PREDICTION_DEBOUNCE=0.6`
+
+When `AI_PROVIDER=openai`, the browser streams mono 16-bit PCM at 16 kHz to OpenAI Realtime Transcription (`OPENAI_REALTIME_SESSION_MODEL=gpt-realtime`, transcription model `OPENAI_LIVE_MODEL=gpt-live-transcribe`). Interim transcript deltas are accumulated and shown while speaking; completed turns are queued and translated sequentially with `OPENAI_TRANSLATION_MODEL`. Optional TTS runs independently so it does not delay the next translation. Gemini keeps its existing Live path. API connectivity and account/model access must be tested with a real key; unit tests should use mocks and do not consume API credit.

@@ -4,14 +4,14 @@ from translation.translator import TranslationEngine
 
 
 def make_engine_without_loading_model():
-    with patch("translation.translator.AutoTokenizer.from_pretrained") as tokenizer_loader, \
-         patch("translation.translator.AutoModelForSeq2SeqLM.from_pretrained") as model_loader:
+    with patch("translation.translator.AutoTokenizer") as tokenizer_class, \
+         patch("translation.translator.AutoModelForSeq2SeqLM") as model_class:
 
         tokenizer = MagicMock()
         model = MagicMock()
 
-        tokenizer_loader.return_value = tokenizer
-        model_loader.return_value = model
+        tokenizer_class.from_pretrained.return_value = tokenizer
+        model_class.from_pretrained.return_value = model
 
         engine = TranslationEngine()
 
