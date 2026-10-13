@@ -1,6 +1,6 @@
 # THUCTAP — Real-Time Speech Translation
 
-Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Pipeline web có thể dùng Gemini (mặc định) hoặc OpenAI; các module local và benchmark hiện có được giữ nguyên. Bản web hiện xử lý theo cụm audio khi phát hiện khoảng lặng, chưa phải luồng transcript từng token.
+Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Pipeline web có thể dùng Gemini (mặc định) hoặc OpenAI; các module local và benchmark hiện có được giữ nguyên. Chế độ OpenAI và Gemini Live truyền audio liên tục và hiển thị transcript tạm thời/final; bản dịch tiếng Việt được xử lý tuần tự sau mỗi câu hoàn chỉnh.
 
 ## 1. Công nghệ sử dụng
 
@@ -248,4 +248,4 @@ Configuration:
 - `GEMINI_PREDICTION_MODEL=gemini-3.8-flash`
 - `GEMINI_PREDICTION_DEBOUNCE=0.6`
 
-The OpenAI provider continues to use the existing chunk-based flow. The Live API path requires access to the configured Gemini models; mock tests do not validate live account access.
+When `AI_PROVIDER=openai`, the browser streams mono 16-bit PCM at 16 kHz to OpenAI Realtime Transcription (`OPENAI_LIVE_MODEL=gpt-live-transcribe`). Interim transcript deltas are accumulated and shown while speaking; completed turns are queued and translated sequentially with `OPENAI_TRANSLATION_MODEL`. Optional TTS runs independently so it does not delay the next translation. Gemini keeps its existing Live path. API connectivity and account/model access must be tested with a real key; unit tests should use mocks and do not consume API credit.
