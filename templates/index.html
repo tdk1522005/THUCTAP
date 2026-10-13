@@ -177,6 +177,9 @@ let activeAudioUrl = null;
 let liveMode = false;
 let liveReady = false;
 let liveAudioQueue = [];
+let finalizedEnglish = [];
+let finalizedVietnamese = [];
+let currentInterim = "";
 
 const TARGET_RATE = 16000;
 const SILENCE_MS = 750;
@@ -231,19 +234,30 @@ socket.on("live_ready", () => {
   status("Gemini Live đã kết nối · đang nhận giọng nói realtime.");
 });
 
+function renderEnglishTranscript() {
+  const lines = finalizedEnglish.slice();
+  if (currentInterim) lines.push(currentInterim + " …");
+  $("english").textContent = lines.join("\n") || "Lời nói tiếng Anh sẽ xuất hiện ở đây.";
+}
+
 socket.on("live_transcript", data => {
   if (data.kind === "interim") {
-    $("english").textContent = data.text + " …";
+    currentInterim = data.text || "";
+    renderEnglishTranscript();
     status("Đang nhận diện lời nói...");
   } else if (data.kind === "final") {
-    $("english").textContent = data.text;
+    const finalText = (data.text || "").trim();
+    currentInterim = "";
+    if (finalText && finalizedEnglish[finalizedEnglish.length - 1] !== finalText) finalizedEnglish.push(finalText);
+    renderEnglishTranscript();
     status("Đã nhận câu tiếng Anh · đang dịch...");
   }
 });
 
 socket.on("live_translation", data => {
-  $("english").textContent = data.english || $("english").textContent;
-  $("vietnamese").textContent = data.vietnamese || "Chưa có bản dịch.";
+  if (data.english && !finalizedEnglish.includes(data.english)) { finalizedEnglish.push(data.english); renderEnglishTranscript(); }
+  if (data.vietnamese) finalizedVietnamese.push(data.vietnamese);
+  $("vietnamese").textContent = finalizedVietnamese.join("\n") || "Chưa có bản dịch.";
   $("translationTime").textContent = formatMs(data.translation_ms);
   $("totalTime").textContent = formatMs(data.total_ms);
   const entry = document.createElement("div");
@@ -277,7 +291,8 @@ socket.on("live_prediction", data => {
   $("prediction").textContent = continuation ? `${fixed}  →  ${continuation}\n${full}` : full;
 });
 socket.on("live_translation_error", data => {
-  status(data.error || "Không dịch được câu vừa nhận.");
+  const message = data.error || "Không dịch được câu vừa nhận.";
+  status(message.includes("503") || message.includes("UNAVAILABLE") ? "Gemini đang quá tải (503). Câu tiếng Anh vẫn được giữ; hãy thử lại sau." : message);
 });
 socket.on("live_tts_status", data => {
   status(data.enabled ? "TTS đã bật cho các bản dịch tiếp theo." : "TTS đã tắt.");
@@ -675,6 +690,9 @@ $("ttsToggle").addEventListener("change", event => {
 });
 
 $("clearButton").addEventListener("click", () => {
+  finalizedEnglish = [];
+  finalizedVietnamese = [];
+  currentInterim = "";
   $("english").textContent = "Lời nói tiếng Anh sẽ xuất hiện ở đây.";
   $("vietnamese").textContent = "Bản dịch sẽ xuất hiện ở đây.";
   $("prediction").textContent = "Phần tiếp theo sẽ xuất hiện tại đây.";
