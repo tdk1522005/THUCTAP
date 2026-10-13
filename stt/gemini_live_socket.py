@@ -42,7 +42,8 @@ class _LiveSession:
         self.partial = ""
         self.history = []
         self.prediction_task = None
-        self.prediction_enabled = os.getenv("GEMINI_PREDICTION_ENABLED", "true").lower() in {"1", "true", "yes"}
+        self.prediction_enabled = os.getenv("GEMINI_PREDICTION_ENABLED", "false").lower() in {"1", "true", "yes"}
+        self.translation_tasks = set()
         self.prediction_model = os.getenv("GEMINI_PREDICTION_MODEL", "gemini-3.8-flash")
 
     def start(self, tts_enabled=False):
@@ -91,30 +92,11 @@ class _LiveSession:
             cleaned = _clean_text(text)
             if cleaned:
                 self.history.append(cleaned)
-            started = time.perf_counter()
-            try:
-                translated = await asyncio.to_thread(self.translator.translate, text)
-                vietnamese = (translated.get("text") or "").strip()
-                audio_b64 = None
-                tts_ms = 0
-                if self.tts_enabled and vietnamese:
-                    spoken = await asyncio.to_thread(self.tts_engine.synthesize, vietnamese)
-                    tts_ms = spoken.get("latency_ms", 0)
-                    if spoken.get("audio"):
-                        audio_b64 = base64.b64encode(spoken["audio"]).decode("ascii")
-                socketio_emit(self.sid, "live_translation", {
-                    "english": text,
-                    "vietnamese": vietnamese,
-                    "translation_ms": translated.get("latency_ms", 0),
-                    "tts_ms": tts_ms,
-                    "total_ms": (time.perf_counter() - started) * 1000,
-                    "audio_base64": audio_b64,
-                })
-            except Exception as exc:
-                logging.getLogger(__name__).exception("Live translation failed")
-                socketio_emit(self.sid, "live_translation_error", {
-                    "error": "Không dịch được câu vừa nhận: " + str(exc)
-                })
+            # Do not block Gemini Live's receive loop on translation/TTS.
+            # This lets new speech continue flowing while prior sentences are processed.
+            task = asyncio.create_task(self._translate_final(text))
+            self.translation_tasks.add(task)
+            task.add_done_callback(self.translation_tasks.discard)
 
         try:
             await self.engine.start(on_transcript)
@@ -129,6 +111,46 @@ class _LiveSession:
             if self.engine:
                 await self.engine.close()
 
+
+    async def _translate_final(self, text):
+        started = time.perf_counter()
+        try:
+            translated = await asyncio.to_thread(self.translator.translate, text)
+            vietnamese = (translated.get("text") or "").strip()
+            # Publish the text as soon as translation completes; do not make the
+            # user wait for speech synthesis before seeing the Vietnamese result.
+            socketio_emit(self.sid, "live_translation", {
+                "english": text,
+                "vietnamese": vietnamese,
+                "translation_ms": translated.get("latency_ms", 0),
+                "total_ms": (time.perf_counter() - started) * 1000,
+                "audio_base64": None,
+            })
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Live translation failed")
+            socketio_emit(self.sid, "live_translation_error", {
+                "error": "Không dịch được câu vừa nhận: " + str(exc)
+            })
+            return
+
+        # Read the current toggle after translation, so changing it while the
+        # translation is in flight affects this sentence too.
+        if not self.tts_enabled or not vietnamese:
+            return
+        try:
+            spoken = await asyncio.to_thread(self.tts_engine.synthesize, vietnamese)
+            if not self.tts_enabled or not spoken.get("audio"):
+                return
+            socketio_emit(self.sid, "live_tts_audio", {
+                "english": text,
+                "tts_ms": spoken.get("latency_ms", 0),
+                "audio_base64": base64.b64encode(spoken["audio"]).decode("ascii"),
+            })
+        except Exception as exc:
+            logging.getLogger(__name__).exception("Live TTS failed")
+            socketio_emit(self.sid, "live_tts_error", {
+                "error": "Đã dịch được văn bản nhưng không tạo được giọng nói: " + str(exc)
+            })
 
     async def _delayed_predict(self, partial):
         try:
