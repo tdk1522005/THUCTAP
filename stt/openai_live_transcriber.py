@@ -13,7 +13,7 @@ class OpenAILiveTranscriber:
     """Streams 24 kHz mono PCM to OpenAI and emits interim/final transcript text."""
 
     def __init__(self, client=None, model=None, language="en"):
-        self.model = model or os.getenv("OPENAI_LIVE_MODEL", "gpt-4o-mini-transcribe")
+        self.model = model or os.getenv("OPENAI_LIVE_MODEL", "gpt-live-transcribe")
         self.language = language
         self.client = client or AsyncOpenAI()
         self.connection = None
