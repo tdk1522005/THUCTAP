@@ -40,8 +40,9 @@ class FakeRealtime:
         self.connection = connection
         self.model = None
 
-    def connect(self, model):
+    def connect(self, model=None, **kwargs):
         self.model = model
+        self.kwargs = kwargs
         return FakeConnectionContext(self.connection)
 
 
@@ -71,6 +72,8 @@ def test_openai_live_transcriber_accumulates_deltas_and_finalizes():
             ("interim", "Hello world"),
             ("final", "Hello world."),
         ]
+        assert engine.client.realtime.model is None
+        assert engine.client.realtime.kwargs == {"extra_query": {"intent": "transcription"}}
         assert connection.sent[0]["type"] == "session.update"
         assert connection.sent[0]["session"]["type"] == "transcription"
         audio_input = connection.sent[0]["session"]["audio"]["input"]
