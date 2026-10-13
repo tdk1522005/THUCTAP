@@ -110,8 +110,11 @@ class _LiveSession:
                     "total_ms": (time.perf_counter() - started) * 1000,
                     "audio_base64": audio_b64,
                 })
-            except Exception:
+            except Exception as exc:
                 logging.getLogger(__name__).exception("Live translation failed")
+                socketio_emit(self.sid, "live_translation_error", {
+                    "error": "Không dịch được câu vừa nhận: " + str(exc)
+                })
 
         try:
             await self.engine.start(on_transcript)
@@ -229,6 +232,15 @@ def configure_live_socketio(socketio_instance, translator, tts_engine):
         if session and pcm:
             if not session.send_audio(pcm):
                 emit("live_error", {"error": "Hàng đợi audio đầy hoặc phiên đã dừng."})
+
+    @socketio.on("live_tts_toggle")
+    def handle_live_tts_toggle(data):
+        sid = __import__("flask").request.sid
+        with _live_lock:
+            session = _live_sessions.get(sid)
+        if session:
+            session.tts_enabled = bool((data or {}).get("enabled", False))
+            emit("live_tts_status", {"enabled": session.tts_enabled})
 
     @socketio.on("live_stop")
     def handle_live_stop():
