@@ -9,7 +9,7 @@ load_dotenv()
 
 class GeminiTranslationEngine:
     def __init__(self, client=None, model=None):
-        self.model = model or os.getenv("GEMINI_TRANSLATION_MODEL", "gemini-2.5-flash")
+        self.model = model or os.getenv("GEMINI_TRANSLATION_MODEL", "gemini-3.8-flash")
         self.client = client or genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
     def translate(self, text):
