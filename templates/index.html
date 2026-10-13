@@ -106,7 +106,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 <main>
   <header>
     <h1>Speech Translator</h1>
-    <p class="muted">English → Vietnamese · Gemini Live realtime / OpenAI xử lý theo cụm</p>
+    <p class="muted">English → Vietnamese · OpenAI/Gemini Realtime transcription</p>
   </header>
 
   <section class="panel">
@@ -207,8 +207,8 @@ socket.on("disconnect", () => {
 
 socket.on("connection_status", data => {
   if (data.connected) {
-    liveMode = data.provider === "gemini";
-    status(liveMode ? "Backend sẵn sàng · Gemini Live realtime." : "Backend đã sẵn sàng · xử lý theo cụm.");
+    liveMode = data.provider === "gemini" || data.provider === "openai";
+    status(liveMode ? `Backend sẵn sàng · ${data.provider === "openai" ? "OpenAI" : "Gemini"} Realtime.` : "Backend đã sẵn sàng · xử lý theo cụm.");
   }
 });
 
@@ -231,7 +231,7 @@ socket.on("live_ready", () => {
   liveReady = true;
   for (const audio of liveAudioQueue) socket.emit("live_audio", { audio });
   liveAudioQueue = [];
-  status("Gemini Live đã kết nối · đang nhận giọng nói realtime.");
+  status(`Realtime đã kết nối · đang nhận giọng nói (${socket.provider || "AI"}).`);
 });
 
 function renderEnglishTranscript() {
@@ -292,12 +292,12 @@ socket.on("live_prediction", data => {
 });
 socket.on("live_translation_error", data => {
   const message = data.error || "Không dịch được câu vừa nhận.";
-  status(message.includes("503") || message.includes("UNAVAILABLE") ? "Gemini đang quá tải (503). Câu tiếng Anh vẫn được giữ; hãy thử lại sau." : message);
+  status(message.includes("503") || message.includes("UNAVAILABLE") ? "API đang quá tải (503). Câu tiếng Anh vẫn được giữ; hãy thử lại sau." : message);
 });
 socket.on("live_tts_status", data => {
   status(data.enabled ? "TTS đã bật cho các bản dịch tiếp theo." : "TTS đã tắt.");
 });
-socket.on("live_error", data => status("Lỗi Gemini Live: " + (data.error || "không rõ nguyên nhân.")));
+socket.on("live_error", data => status("Lỗi Realtime: " + (data.error || "không rõ nguyên nhân.")));
 socket.on("live_stopped", () => { liveReady = false; liveAudioQueue = []; });
 
 socket.on("translation_result", data => {
@@ -632,7 +632,7 @@ $("startButton").addEventListener("click", async () => {
     $("startButton").disabled = true;
     $("stopButton").disabled = false;
     status(liveMode
-      ? "Đang mở Gemini Live... hãy nói tiếng Anh."
+      ? "Đang mở phiên Realtime... hãy nói tiếng Anh."
       : "Đang nghe. Hãy nói tiếng Anh; hệ thống sẽ tự chia cụm.");
   } catch (error) {
     running = false;
@@ -672,7 +672,7 @@ $("stopButton").addEventListener("click", async () => {
   $("startButton").disabled = false;
   $("stopButton").disabled = true;
   status(liveMode
-    ? "Đã dừng phiên Gemini Live."
+    ? "Đã dừng phiên Realtime."
     : "Đã dừng thu âm. Các cụm đang chờ vẫn được xử lý.");
 });
 
