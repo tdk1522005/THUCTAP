@@ -71,7 +71,7 @@ def test_gemini_translation_retries_503_then_succeeds(monkeypatch):
     result = engine.translate("Hello.")
     assert result["text"] == "Xin chào."
     assert len(client.models.calls) == 2
-    assert sleeps == [1]
+    assert sleeps == [0.5]
 
 
 def test_gemini_translation_does_not_retry_non_503(monkeypatch):
