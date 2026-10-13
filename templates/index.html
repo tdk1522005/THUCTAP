@@ -106,7 +106,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 <main>
   <header>
     <h1>Speech Translator</h1>
-    <p class="muted">English → Vietnamese · Streaming theo cụm</p>
+    <p class="muted">English → Vietnamese · Gemini Live realtime / OpenAI xử lý theo cụm</p>
   </header>
 
   <section class="panel">
@@ -172,6 +172,9 @@ let sending = false;
 let playbackQueue = [];
 let playing = false;
 let activeAudioUrl = null;
+let liveMode = false;
+let liveReady = false;
+let liveAudioQueue = [];
 
 const TARGET_RATE = 16000;
 const SILENCE_MS = 750;
@@ -198,8 +201,69 @@ socket.on("disconnect", () => {
 });
 
 socket.on("connection_status", data => {
-  if (data.connected) status("Backend đã sẵn sàng.");
+  if (data.connected) {
+    liveMode = data.provider === "gemini";
+    status(liveMode ? "Backend sẵn sàng · Gemini Live realtime." : "Backend đã sẵn sàng · xử lý theo cụm.");
+  }
 });
+
+function encodePcm16Base64(samples) {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let i = 0; i < samples.length; i++) {
+    const value = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(i * 2, value < 0 ? value * 32768 : value * 32767, true);
+  }
+  let binary = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + step, bytes.length)));
+  }
+  return btoa(binary);
+}
+
+socket.on("live_ready", () => {
+  liveReady = true;
+  for (const audio of liveAudioQueue) socket.emit("live_audio", { audio });
+  liveAudioQueue = [];
+  status("Gemini Live đã kết nối · đang nhận giọng nói realtime.");
+});
+
+socket.on("live_transcript", data => {
+  if (data.kind === "interim") {
+    $("english").textContent = data.text + " …";
+    status("Đang nhận diện lời nói...");
+  } else if (data.kind === "final") {
+    $("english").textContent = data.text;
+    status("Đã nhận câu tiếng Anh · đang dịch...");
+  }
+});
+
+socket.on("live_translation", data => {
+  $("english").textContent = data.english || $("english").textContent;
+  $("vietnamese").textContent = data.vietnamese || "Chưa có bản dịch.";
+  $("translationTime").textContent = formatMs(data.translation_ms);
+  $("totalTime").textContent = formatMs(data.total_ms);
+  const entry = document.createElement("div");
+  entry.className = "entry";
+  const en = document.createElement("div");
+  const enLabel = document.createElement("strong"); enLabel.textContent = "EN: ";
+  en.append(enLabel, document.createTextNode(data.english || ""));
+  const vi = document.createElement("div");
+  const viLabel = document.createElement("strong"); viLabel.textContent = "VI: ";
+  vi.append(viLabel, document.createTextNode(data.vietnamese || ""));
+  entry.append(en, vi);
+  if ($("history").textContent === "Chưa có kết quả.") $("history").textContent = "";
+  $("history").prepend(entry);
+  if (data.audio_base64 && $("ttsToggle").checked) {
+    playbackQueue.push(data.audio_base64);
+    playNextAudio();
+  }
+  status("Realtime · tiếp tục lắng nghe...");
+});
+
+socket.on("live_error", data => status("Lỗi Gemini Live: " + (data.error || "không rõ nguyên nhân.")));
+socket.on("live_stopped", () => { liveReady = false; liveAudioQueue = []; });
 
 socket.on("translation_result", data => {
   if (!running && data.chunk_id === undefined) return;
@@ -478,6 +542,9 @@ $("startButton").addEventListener("click", async () => {
     speechStarted = false;
     sendQueue = [];
     running = true;
+    liveReady = false;
+    liveAudioQueue = [];
+    if (liveMode) socket.emit("live_start", { tts_enabled: $("ttsToggle").checked });
 
     processor.onaudioprocess = event => {
       if (!running) return;
@@ -488,6 +555,17 @@ $("startButton").addEventListener("click", async () => {
         audioContext.sampleRate,
         TARGET_RATE
       );
+
+      if (liveMode) {
+        const encoded = encodePcm16Base64(pcm);
+        if (liveReady) {
+          socket.emit("live_audio", { audio: encoded });
+        } else {
+          liveAudioQueue.push(encoded);
+          if (liveAudioQueue.length > 20) liveAudioQueue.shift();
+        }
+        return;
+      }
 
       let energy = 0;
       for (const value of pcm) energy += value * value;
@@ -518,7 +596,9 @@ $("startButton").addEventListener("click", async () => {
 
     $("startButton").disabled = true;
     $("stopButton").disabled = false;
-    status("Đang nghe. Hãy nói tiếng Anh; hệ thống sẽ tự chia cụm.");
+    status(liveMode
+      ? "Đang mở Gemini Live... hãy nói tiếng Anh."
+      : "Đang nghe. Hãy nói tiếng Anh; hệ thống sẽ tự chia cụm.");
   } catch (error) {
     running = false;
     mediaStream?.getTracks().forEach(track => track.stop());
@@ -545,12 +625,20 @@ $("stopButton").addEventListener("click", async () => {
     audioContext = null;
   }
 
-  // Gửi phần audio cuối cùng nếu có.
-  finalizeChunk();
+  // Gửi phần audio cuối cùng nếu đang dùng chế độ xử lý theo cụm.
+  if (liveMode) {
+    socket.emit("live_stop");
+    liveReady = false;
+    liveAudioQueue = [];
+  } else {
+    finalizeChunk();
+  }
 
   $("startButton").disabled = false;
   $("stopButton").disabled = true;
-  status("Đã dừng thu âm. Các cụm đang chờ vẫn được xử lý.");
+  status(liveMode
+    ? "Đã dừng phiên Gemini Live."
+    : "Đã dừng thu âm. Các cụm đang chờ vẫn được xử lý.");
 });
 
 $("ttsToggle").addEventListener("change", event => {
