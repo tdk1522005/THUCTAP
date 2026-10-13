@@ -13,8 +13,7 @@ class OpenAILiveTranscriber:
     """Streams 24 kHz mono PCM to OpenAI and emits interim/final transcript text."""
 
     def __init__(self, client=None, model=None, language="en"):
-        # Realtime session model and transcription model serve different roles.
-        self.session_model = os.getenv("OPENAI_REALTIME_SESSION_MODEL", "gpt-realtime")
+        # A transcription-only connection must use intent=transcription, not a normal realtime model.
         self.model = model or os.getenv("OPENAI_LIVE_MODEL", "gpt-live-transcribe")
         self.language = language
         self.client = client or AsyncOpenAI()
@@ -37,7 +36,10 @@ class OpenAILiveTranscriber:
         self._error = None
         self._partial_text = ""
         self._turn_complete.clear()
-        self._context = self.client.realtime.connect(model=self.session_model)
+        self._context = self.client.realtime.connect(
+            model=None,
+            extra_query={"intent": "transcription"},
+        )
         self.connection = await self._context.__aenter__()
         await self.connection.send({
             "type": "session.update",
@@ -48,7 +50,7 @@ class OpenAILiveTranscriber:
                         "format": {"type": "audio/pcm", "rate": 24000},
                         "transcription": {
                             "model": self.model,
-                            "language": self.language,
+                            "languages": [self.language],
                         },
                         "turn_detection": None,
                     }
