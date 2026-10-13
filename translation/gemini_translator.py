@@ -10,7 +10,17 @@ load_dotenv()
 class GeminiTranslationEngine:
     def __init__(self, client=None, model=None, retry_attempts=2):
         self.model = model or os.getenv("GEMINI_TRANSLATION_MODEL", "gemini-3.8-flash")
-        self.client = client or genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        # Bound network waits so a stalled translation does not hang the live UI.
+        if client is None:
+            from google.genai import types
+            self.client = genai.Client(
+                api_key=os.getenv("GEMINI_API_KEY"),
+                http_options=types.HttpOptions(
+                    timeout=int(os.getenv("GEMINI_TRANSLATION_TIMEOUT_MS", "12000"))
+                ),
+            )
+        else:
+            self.client = client
         self.retry_attempts = max(1, int(retry_attempts))
 
     def translate(self, text):
