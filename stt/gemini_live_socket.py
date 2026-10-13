@@ -2,6 +2,9 @@
 import asyncio
 import base64
 import logging
+import json
+import os
+import re
 import threading
 import time
 
@@ -10,6 +13,16 @@ from flask_socketio import emit
 from stt.gemini_live_transcriber import GeminiLiveTranscriber
 
 _live_sessions = {}
+_FILLERS = re.compile(r"\b(um+|uh+|er+|ah+|hmm+)\b[,.]?\s*", re.I)
+_REPEAT = re.compile(r"\b(\w+)(\s+\1\b)+", re.I)
+
+
+def _clean_text(text):
+    text = _FILLERS.sub("", text or "")
+    text = _REPEAT.sub(r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\bi\b", "I", text)
+    return text[:1].upper() + text[1:] if text else text
 _live_lock = threading.Lock()
 
 
@@ -26,6 +39,11 @@ class _LiveSession:
         self.error = None
         self.tts_enabled = False
         self.closed = False
+        self.partial = ""
+        self.history = []
+        self.prediction_task = None
+        self.prediction_enabled = os.getenv("GEMINI_PREDICTION_ENABLED", "true").lower() in {"1", "true", "yes"}
+        self.prediction_model = os.getenv("GEMINI_PREDICTION_MODEL", "gemini-2.5-flash")
 
     def start(self, tts_enabled=False):
         self.tts_enabled = bool(tts_enabled)
@@ -61,8 +79,18 @@ class _LiveSession:
             if not text:
                 return
             socketio_emit(self.sid, "live_transcript", {"kind": kind, "text": text})
-            if kind != "final":
+            if kind == "interim":
+                self.partial = text
+                if self.prediction_task and not self.prediction_task.done():
+                    self.prediction_task.cancel()
+                if self.prediction_enabled:
+                    self.prediction_task = asyncio.create_task(self._delayed_predict(text))
                 return
+            if self.prediction_task and not self.prediction_task.done():
+                self.prediction_task.cancel()
+            cleaned = _clean_text(text)
+            if cleaned:
+                self.history.append(cleaned)
             started = time.perf_counter()
             try:
                 translated = await asyncio.to_thread(self.translator.translate, text)
@@ -98,6 +126,44 @@ class _LiveSession:
             if self.engine:
                 await self.engine.close()
 
+
+    async def _delayed_predict(self, partial):
+        try:
+            await asyncio.sleep(float(os.getenv("GEMINI_PREDICTION_DEBOUNCE", "0.6")))
+            snapshot = _clean_text(partial)
+            if not snapshot or snapshot != _clean_text(self.partial):
+                return
+            prompt = (
+                "You help with live speech. Given the conversation so far and an "
+                "UNFINISHED sentence, return JSON with keys: "
+                '"fixed": unfinished sentence with grammar/punctuation fixed (do not add words), '
+                '"is_complete": true/false, "continuation": most likely next 3-8 words '
+                '(empty if complete), "full": fixed + continuation as one natural sentence.\n\n'
+                f"Previous sentences: {self.history[-3:]}\n"
+                f"Unfinished sentence: {snapshot!r}"
+            )
+            from google.genai import types
+            response = await self.engine.client.aio.models.generate_content(
+                model=self.prediction_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json", temperature=0.3
+                ),
+            )
+            if snapshot != _clean_text(self.partial):
+                return
+            result = json.loads(response.text or "{}")
+            socketio_emit(self.sid, "live_prediction", {
+                "fixed": result.get("fixed", snapshot),
+                "is_complete": bool(result.get("is_complete", False)),
+                "continuation": result.get("continuation", ""),
+                "full": result.get("full", snapshot),
+            })
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.getLogger(__name__).exception("Live prediction failed")
+
     def send_audio(self, data):
         if self.closed or not self.loop.is_running() or self.queue is None:
             return False
@@ -114,6 +180,8 @@ class _LiveSession:
             return
         self.closed = True
         if self.loop.is_running() and self.queue is not None:
+            if self.prediction_task and not self.prediction_task.done():
+                self.loop.call_soon_threadsafe(self.prediction_task.cancel)
             asyncio.run_coroutine_threadsafe(self.queue.put(None), self.loop)
         if self.thread.is_alive() and threading.current_thread() is not self.thread:
             self.thread.join(timeout=8)
