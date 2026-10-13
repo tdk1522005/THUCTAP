@@ -16,7 +16,7 @@ class GeminiTranscriber:
 
     def __init__(self, client=None, model=None):
         self.model = model or os.getenv(
-            "GEMINI_STT_MODEL", "gemini-3.5-transcribe-live"
+            "GEMINI_STT_MODEL", "gemini-2.5-flash"
         )
         self.client = client or genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
