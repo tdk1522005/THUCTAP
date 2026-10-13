@@ -132,6 +132,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
       <div class="result-box">
         <div class="label">TIẾNG VIỆT · TRANSLATION</div>
         <div id="vietnamese" class="content">Bản dịch sẽ xuất hiện ở đây.</div>
+        <div class="label" style="margin-top:12px">DỰ ĐOÁN CÂU ĐANG NÓI</div>
+        <div id="prediction" class="content muted">Phần tiếp theo sẽ xuất hiện tại đây.</div>
       </div>
     </div>
     <div class="metrics">
@@ -262,6 +264,12 @@ socket.on("live_translation", data => {
   status("Realtime · tiếp tục lắng nghe...");
 });
 
+socket.on("live_prediction", data => {
+  const fixed = data.fixed || "";
+  const continuation = data.continuation || "";
+  const full = data.full || fixed;
+  $("prediction").textContent = continuation ? `${fixed}  →  ${continuation}\n${full}` : full;
+});
 socket.on("live_error", data => status("Lỗi Gemini Live: " + (data.error || "không rõ nguyên nhân.")));
 socket.on("live_stopped", () => { liveReady = false; liveAudioQueue = []; });
 
@@ -654,6 +662,7 @@ $("ttsToggle").addEventListener("change", event => {
 $("clearButton").addEventListener("click", () => {
   $("english").textContent = "Lời nói tiếng Anh sẽ xuất hiện ở đây.";
   $("vietnamese").textContent = "Bản dịch sẽ xuất hiện ở đây.";
+  $("prediction").textContent = "Phần tiếp theo sẽ xuất hiện tại đây.";
   $("sttTime").textContent = "—";
   $("translationTime").textContent = "—";
   $("totalTime").textContent = "—";
