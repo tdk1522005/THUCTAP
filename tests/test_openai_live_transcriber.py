@@ -73,6 +73,9 @@ def test_openai_live_transcriber_accumulates_deltas_and_finalizes():
         ]
         assert connection.sent[0]["type"] == "session.update"
         assert connection.sent[0]["session"]["type"] == "transcription"
+        audio_input = connection.sent[0]["session"]["audio"]["input"]
+        assert audio_input["format"] == {"type": "audio/pcm", "rate": 24000}
+        assert audio_input["turn_detection"] is None
         await engine.close()
 
     asyncio.run(run())
