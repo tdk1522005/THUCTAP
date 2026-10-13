@@ -7,7 +7,6 @@ import time
 from collections import deque
 
 import numpy as np
-import sounddevice as sd
 import soundfile as sf
 from openai import (
     APIConnectionError,
@@ -179,6 +178,8 @@ def tts_worker(tts_engine, tts_queue):
                     f"{result['latency_ms']:.0f} ms synthesis"
                 )
 
+                import sounddevice as sd
+
                 sd.play(audio_data, samplerate=sample_rate)
                 sd.wait()
 
@@ -341,6 +342,8 @@ def main():
     print("Press Ctrl+C to stop.\n")
 
     try:
+        import sounddevice as sd
+
         with sd.InputStream(
             samplerate=SAMPLE_RATE,
             channels=CHANNELS,
