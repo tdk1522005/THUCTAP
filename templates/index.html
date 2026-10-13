@@ -270,6 +270,12 @@ socket.on("live_prediction", data => {
   const full = data.full || fixed;
   $("prediction").textContent = continuation ? `${fixed}  →  ${continuation}\n${full}` : full;
 });
+socket.on("live_translation_error", data => {
+  status(data.error || "Không dịch được câu vừa nhận.");
+});
+socket.on("live_tts_status", data => {
+  status(data.enabled ? "TTS đã bật cho các bản dịch tiếp theo." : "TTS đã tắt.");
+});
 socket.on("live_error", data => status("Lỗi Gemini Live: " + (data.error || "không rõ nguyên nhân.")));
 socket.on("live_stopped", () => { liveReady = false; liveAudioQueue = []; });
 
@@ -650,6 +656,9 @@ $("stopButton").addEventListener("click", async () => {
 });
 
 $("ttsToggle").addEventListener("change", event => {
+  if (running && liveMode) {
+    socket.emit("live_tts_toggle", { enabled: event.target.checked });
+  }
   if (!event.target.checked) {
     playbackQueue = [];
     status("TTS đã tắt. Phiên dịch vẫn tiếp tục.");
