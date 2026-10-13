@@ -1,6 +1,6 @@
 # THUCTAP — Real-Time Speech Translation
 
-Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Pipeline web có thể dùng Gemini (mặc định) hoặc OpenAI; các module local và benchmark hiện có được giữ nguyên. Chế độ OpenAI và Gemini Live truyền audio liên tục và hiển thị transcript tạm thời/final; bản dịch tiếng Việt được xử lý tuần tự sau mỗi câu hoàn chỉnh.
+Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Pipeline web mặc định dùng OpenAI; Gemini chỉ được chọn khi đặt `AI_PROVIDER=gemini`; các module local và benchmark hiện có được giữ nguyên. Chế độ OpenAI và Gemini Live truyền audio liên tục và hiển thị transcript tạm thời/final; bản dịch tiếng Việt được xử lý tuần tự sau mỗi câu hoàn chỉnh.
 
 ## 1. Công nghệ sử dụng
 
@@ -16,7 +16,7 @@
 
 - Python 3.12 hoặc phiên bản tương thích với các dependencies.
 - Git.
-- Kết nối Internet và API key của nhà cung cấp đang chọn (Gemini mặc định; OpenAI là phương án dự phòng).
+- Kết nối Internet và API key của nhà cung cấp đang chọn (OpenAI mặc định; Gemini là tùy chọn).
 - Model đã cấu hình phải được tài khoản API của bạn hỗ trợ.
 - Microphone và loa/tai nghe nếu sử dụng chức năng thu âm và phát giọng nói.
 
@@ -59,7 +59,7 @@ pip install -r requirements-gemini.txt
 
 Nếu cài đặt gặp lỗi, hãy kiểm tra phiên bản Python và thông báo lỗi trước khi cài thêm package thủ công.
 
-## 4. Cấu hình Gemini (mặc định) hoặc OpenAI
+## 4. Cấu hình OpenAI (mặc định) hoặc Gemini
 
 Tạo file `.env` từ file mẫu:
 
@@ -67,18 +67,17 @@ Tạo file `.env` từ file mẫu:
 Copy-Item .env.example .env
 ```
 
-Mở `.env`. Để dùng Gemini, cấu hình:
+Mở `.env`. Để dùng OpenAI (mặc định), cấu hình:
 
 ```env
-AI_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_STT_MODEL=gemini-3.8-flash
-GEMINI_TRANSLATION_MODEL=gemini-3.8-flash
-GEMINI_TTS_MODEL=gemini-3.8-flash-tts
-GEMINI_TTS_VOICE=Kore
+AI_PROVIDER=openai
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_LIVE_MODEL=gpt-4o-mini-transcribe
+OPENAI_TRANSLATION_MODEL=gpt-4.1-mini
+OPENAI_TTS_MODEL=gpt-4o-mini-tts
 ```
 
-Muốn chuyển về OpenAI, đặt `AI_PROVIDER=openai` và điền `OPENAI_API_KEY` cùng các biến model OpenAI tương ứng trong `.env.example`. Không chia sẻ API key hoặc commit file `.env` lên GitHub.
+Muốn dùng Gemini, đặt `AI_PROVIDER=gemini` và điền `GEMINI_API_KEY`. Nếu `AI_PROVIDER` bị bỏ trống, ứng dụng mặc định chọn OpenAI. Không chia sẻ API key hoặc commit file `.env` lên GitHub.
 
 **Lưu ý:** model có thể phụ thuộc quyền truy cập/tình trạng cung cấp của tài khoản. Chưa thực hiện API call thật trong bước tích hợp này; unit test dùng mock và không tiêu hao API credit. Các API có thể phát sinh chi phí khi chạy ứng dụng.
 
