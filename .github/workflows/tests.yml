@@ -4,7 +4,7 @@ on:
   push:
     branches: ["feature/gemini-live-web"]
   pull_request:
-    branches: ["feature/gemini-live-web"]
+    branches: ["main"]
 
 jobs:
   pytest:
