@@ -1,13 +1,13 @@
 # THUCTAP — Real-Time Speech Translation
 
-Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Project hỗ trợ giao diện web và các module thử nghiệm mô hình STT, dịch thuật chạy local.
+Ứng dụng nhận diện giọng nói tiếng Anh, dịch sang tiếng Việt và tổng hợp giọng nói tiếng Việt. Pipeline web có thể dùng Gemini (mặc định) hoặc OpenAI; các module local và benchmark hiện có được giữ nguyên. Bản web hiện xử lý theo cụm audio khi phát hiện khoảng lặng, chưa phải luồng transcript từng token.
 
 ## 1. Công nghệ sử dụng
 
 - **Python 3.12**
-- **Speech-to-Text (STT):** OpenAI API và Faster-Whisper
-- **Machine Translation:** OpenAI API và mô hình dịch local
-- **Text-to-Speech (TTS):** OpenAI API
+- **Speech-to-Text (STT):** Gemini API, OpenAI API và Faster-Whisper
+- **Machine Translation:** Gemini API, OpenAI API và mô hình dịch local
+- **Text-to-Speech (TTS):** Gemini API và OpenAI API
 - **Web:** Flask, Flask-SocketIO
 - **Audio processing:** SoundFile, NumPy, imageio-ffmpeg
 - **Testing:** pytest
@@ -16,8 +16,8 @@
 
 - Python 3.12 hoặc phiên bản tương thích với các dependencies.
 - Git.
-- Kết nối Internet khi sử dụng OpenAI API.
-- OpenAI API key có quyền truy cập các model được cấu hình.
+- Kết nối Internet và API key của nhà cung cấp đang chọn (Gemini mặc định; OpenAI là phương án dự phòng).
+- Model đã cấu hình phải được tài khoản API của bạn hỗ trợ.
 - Microphone và loa/tai nghe nếu sử dụng chức năng thu âm và phát giọng nói.
 
 Các script sử dụng mô hình local có thể cần tải model lần đầu và tiêu tốn RAM/CPU đáng kể.
@@ -54,11 +54,12 @@ Nếu PowerShell chặn việc chạy script, có thể sử dụng Command Prom
 ```powershell
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+pip install -r requirements-gemini.txt
 ```
 
 Nếu cài đặt gặp lỗi, hãy kiểm tra phiên bản Python và thông báo lỗi trước khi cài thêm package thủ công.
 
-## 4. Cấu hình OpenAI API
+## 4. Cấu hình Gemini (mặc định) hoặc OpenAI
 
 Tạo file `.env` từ file mẫu:
 
@@ -66,21 +67,20 @@ Tạo file `.env` từ file mẫu:
 Copy-Item .env.example .env
 ```
 
-Mở `.env` và cấu hình các biến:
+Mở `.env`. Để dùng Gemini, cấu hình:
 
 ```env
-OPENAI_API_KEY=your_api_key_here
-
-OPENAI_STT_MODEL=gpt-4o-mini-transcribe
-OPENAI_TRANSLATION_MODEL=gpt-4.1-mini
-
-OPENAI_TTS_MODEL=gpt-4o-mini-tts
-OPENAI_TTS_VOICE=alloy
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_STT_MODEL=gemini-2.5-flash
+GEMINI_TRANSLATION_MODEL=gemini-2.5-flash
+GEMINI_TTS_MODEL=gemini-3.8-flash-tts
+GEMINI_TTS_VOICE=Kore
 ```
 
-Thay `your_api_key_here` bằng API key của bạn. Không chia sẻ API key hoặc commit file `.env` lên GitHub.
+Muốn chuyển về OpenAI, đặt `AI_PROVIDER=openai` và điền `OPENAI_API_KEY` cùng các biến model OpenAI tương ứng trong `.env.example`. Không chia sẻ API key hoặc commit file `.env` lên GitHub.
 
-**Lưu ý:** sử dụng OpenAI API có thể phát sinh chi phí tùy theo model và lượng sử dụng. Không chạy benchmark gọi API thật nếu chưa kiểm tra chi phí.
+**Lưu ý:** model có thể phụ thuộc quyền truy cập/tình trạng cung cấp của tài khoản. Chưa thực hiện API call thật trong bước tích hợp này; unit test dùng mock và không tiêu hao API credit. Các API có thể phát sinh chi phí khi chạy ứng dụng.
 
 ## 5. Chạy giao diện web
 
