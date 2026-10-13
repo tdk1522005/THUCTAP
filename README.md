@@ -235,3 +235,17 @@ Thời gian chạy ghi nhận ở một lần kiểm thử là 5.90 giây. Đây
 ---
 
 **Repository:** https://github.com/tdk1522005/THUCTAP
+
+
+## Gemini Live realtime web mode
+
+When `AI_PROVIDER=gemini`, the browser streams mono PCM audio at 16 kHz to a server-side Gemini Live session. Interim transcription is displayed immediately; final transcription is translated to Vietnamese, with optional TTS. The live sentence prediction follows the demo pattern: clean fillers/repeated words, debounce for 0.6 seconds, cancel stale predictions when new interim text arrives, and keep the last three final sentences as context.
+
+Configuration:
+
+- `GEMINI_LIVE_MODEL=gemini-3.5-transcribe-live`
+- `GEMINI_PREDICTION_ENABLED=true` (set to `false` to reduce additional text-model requests/credit usage)
+- `GEMINI_PREDICTION_MODEL=gemini-2.5-flash`
+- `GEMINI_PREDICTION_DEBOUNCE=0.6`
+
+The OpenAI provider continues to use the existing chunk-based flow. The Live API path requires access to the configured Gemini models; mock tests do not validate live account access.
