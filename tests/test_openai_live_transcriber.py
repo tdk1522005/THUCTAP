@@ -19,7 +19,7 @@ class FakeConnection:
 
     async def __anext__(self):
         try:
-            return self._events.__next__()
+            return next(self._events)
         except StopIteration:
             raise StopAsyncIteration
 
@@ -52,48 +52,51 @@ class FakeClient:
 
 def test_openai_live_transcriber_accumulates_deltas_and_finalizes():
     async def run():
-    connection = FakeConnection([
-        SimpleNamespace(type="session.updated"),
-        SimpleNamespace(type="conversation.item.input_audio_transcription.delta", delta="Hello"),
-        SimpleNamespace(type="conversation.item.input_audio_transcription.delta", delta=" world"),
-        SimpleNamespace(type="conversation.item.input_audio_transcription.completed", transcript="Hello world."),
-    ])
-    engine = OpenAILiveTranscriber(client=FakeClient(connection))
-    events = []
+        connection = FakeConnection([
+            SimpleNamespace(type="session.updated"),
+            SimpleNamespace(type="conversation.item.input_audio_transcription.delta", delta="Hello"),
+            SimpleNamespace(type="conversation.item.input_audio_transcription.delta", delta=" world"),
+            SimpleNamespace(type="conversation.item.input_audio_transcription.completed", transcript="Hello world."),
+        ])
+        engine = OpenAILiveTranscriber(client=FakeClient(connection))
+        events = []
 
-    async def on_transcript(kind, text):
-        events.append((kind, text))
+        async def on_transcript(kind, text):
+            events.append((kind, text))
 
-    await engine.start(on_transcript)
-    await asyncio.sleep(0)
-    assert events == [
-        ("interim", "Hello"),
-        ("interim", "Hello world"),
-        ("final", "Hello world."),
-    ]
-    assert connection.sent[0]["type"] == "session.update"
-    assert connection.sent[0]["session"]["type"] == "transcription"
-    await engine.close()
+        await engine.start(on_transcript)
+        await engine._receiver_task
+        assert events == [
+            ("interim", "Hello"),
+            ("interim", "Hello world"),
+            ("final", "Hello world."),
+        ]
+        assert connection.sent[0]["type"] == "session.update"
+        assert connection.sent[0]["session"]["type"] == "transcription"
+        await engine.close()
+
+    asyncio.run(run())
 
 
 def test_openai_live_transcriber_sends_pcm_as_base64():
     async def run():
-    connection = FakeConnection([SimpleNamespace(type="session.updated")])
-    engine = OpenAILiveTranscriber(client=FakeClient(connection))
-    await engine.start(lambda *_: asyncio.sleep(0))
-    pcm = b"\\x01\\x02" * 80
-    await engine.send_audio(pcm)
-    audio_event = connection.sent[-1]
-    assert audio_event["type"] == "input_audio_buffer.append"
-    assert base64.b64decode(audio_event["audio"]) == pcm
-    await engine.close()
+        connection = FakeConnection([SimpleNamespace(type="session.updated")])
+        engine = OpenAILiveTranscriber(client=FakeClient(connection))
+        await engine.start(lambda *_: asyncio.sleep(0))
+        pcm = b"\\x01\\x02" * 80
+        await engine.send_audio(pcm)
+        audio_event = connection.sent[-1]
+        assert audio_event["type"] == "input_audio_buffer.append"
+        assert base64.b64decode(audio_event["audio"]) == pcm
+        await engine.close()
+
+    asyncio.run(run())
 
 
 def test_openai_live_transcriber_ignores_empty_audio_without_sending():
-    connection = FakeConnection([SimpleNamespace(type="session.updated")])
-    engine = OpenAILiveTranscriber(client=FakeClient(connection))
-
     async def run():
+        connection = FakeConnection([SimpleNamespace(type="session.updated")])
+        engine = OpenAILiveTranscriber(client=FakeClient(connection))
         await engine.start(lambda *_: asyncio.sleep(0))
         await engine.send_audio(b"")
         assert len(connection.sent) == 1
