@@ -178,6 +178,7 @@ let liveMode = false;
 let activeProvider = "gemini";
 let liveReady = false;
 let liveAudioQueue = [];
+let openaiPreRoll = [];
 let finalizedEnglish = [];
 let finalizedVietnamese = [];
 let currentInterim = "";
@@ -582,6 +583,9 @@ $("startButton").addEventListener("click", async () => {
     running = true;
     liveReady = false;
     liveAudioQueue = [];
+    openaiPreRoll = [];
+    speechStarted = false;
+    silenceSamples = 0;
     if (liveMode) socket.emit("live_start", { tts_enabled: $("ttsToggle").checked });
 
     processor.onaudioprocess = event => {
@@ -598,27 +602,42 @@ $("startButton").addEventListener("click", async () => {
         let energy = 0;
         for (const value of pcm) energy += value * value;
         const rms = Math.sqrt(energy / Math.max(1, pcm.length));
-        if (rms >= RMS_THRESHOLD) {
-          speechStarted = true;
-          silenceSamples = 0;
-        } else if (speechStarted) {
-          silenceSamples += pcm.length;
-        }
-
         const encoded = encodePcm16Base64(pcm);
-        if (liveReady) {
-          socket.emit("live_audio", { audio: encoded });
-        } else {
-          liveAudioQueue.push(encoded);
-          if (liveAudioQueue.length > 20) liveAudioQueue.shift();
-        }
 
-        // gpt-live-transcribe has no server VAD; commit the audio turn after silence.
-        if (activeProvider === "openai" && liveReady && speechStarted &&
-            silenceSamples >= TARGET_RATE * 0.55) {
-          socket.emit("live_commit");
-          speechStarted = false;
-          silenceSamples = 0;
+        const sendLiveAudio = chunk => {
+          if (liveReady) {
+            socket.emit("live_audio", { audio: chunk });
+          } else {
+            liveAudioQueue.push(chunk);
+            if (liveAudioQueue.length > 30) liveAudioQueue.shift();
+          }
+        };
+
+        if (activeProvider === "openai") {
+          if (rms >= RMS_THRESHOLD) {
+            if (!speechStarted) {
+              for (const previous of openaiPreRoll) sendLiveAudio(previous);
+              openaiPreRoll = [];
+            }
+            speechStarted = true;
+            silenceSamples = 0;
+            sendLiveAudio(encoded);
+          } else if (speechStarted) {
+            silenceSamples += pcm.length;
+            sendLiveAudio(encoded);
+            // gpt-live-transcribe has no server VAD; commit after 550 ms silence.
+            if (liveReady && silenceSamples >= TARGET_RATE * 0.55) {
+              socket.emit("live_commit");
+              speechStarted = false;
+              silenceSamples = 0;
+              openaiPreRoll = [];
+            }
+          } else {
+            openaiPreRoll.push(encoded);
+            if (openaiPreRoll.length > 3) openaiPreRoll.shift();
+          }
+        } else {
+          sendLiveAudio(encoded);
         }
         return;
       }
@@ -687,6 +706,7 @@ $("stopButton").addEventListener("click", async () => {
     socket.emit("live_stop");
     liveReady = false;
     liveAudioQueue = [];
+    openaiPreRoll = [];
   } else {
     finalizeChunk();
   }
