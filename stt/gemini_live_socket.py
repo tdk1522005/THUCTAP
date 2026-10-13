@@ -33,6 +33,8 @@ class _LiveSession:
         self.tts_engine = tts_engine
         self.loop = asyncio.new_event_loop()
         self.queue = None
+        self.translation_queue = None
+        self.translation_worker = None
         self.engine = None
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.ready = threading.Event()
@@ -73,6 +75,7 @@ class _LiveSession:
 
     async def _serve(self):
         self.queue = asyncio.Queue(maxsize=40)
+        self.translation_queue = asyncio.Queue()
         self.engine = GeminiLiveTranscriber()
 
         async def on_transcript(kind, text):
@@ -92,13 +95,12 @@ class _LiveSession:
             cleaned = _clean_text(text)
             if cleaned:
                 self.history.append(cleaned)
-            # Do not block Gemini Live's receive loop on translation/TTS.
-            # This lets new speech continue flowing while prior sentences are processed.
-            task = asyncio.create_task(self._translate_final(text))
-            self.translation_tasks.add(task)
-            task.add_done_callback(self.translation_tasks.discard)
+            # Queue every final sentence. One worker translates in order so API
+            # responses cannot race and overwrite/reorder consecutive sentences.
+            await self.translation_queue.put(text)
 
         try:
+            self.translation_worker = asyncio.create_task(self._translation_worker())
             await self.engine.start(on_transcript)
             self.ready.set()
             socketio_emit(self.sid, "live_ready", {"ready": True})
@@ -108,15 +110,31 @@ class _LiveSession:
                     break
                 await self.engine.send_audio(item)
         finally:
+            if self.translation_worker and not self.translation_worker.done():
+                self.translation_worker.cancel()
+                await asyncio.gather(self.translation_worker, return_exceptions=True)
             if self.engine:
                 await self.engine.close()
 
+    async def _translation_worker(self):
+        while True:
+            text = await self.translation_queue.get()
+            try:
+                await self._translate_final(text)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logging.getLogger(__name__).exception("Queued translation failed")
+            finally:
+                self.translation_queue.task_done()
 
     async def _translate_final(self, text):
         started = time.perf_counter()
         try:
             translated = await asyncio.to_thread(self.translator.translate, text)
             vietnamese = (translated.get("text") or "").strip()
+            if not vietnamese:
+                raise RuntimeError("Gemini trả về bản dịch rỗng; câu tiếng Anh được giữ lại.")
             # Publish the text as soon as translation completes; do not make the
             # user wait for speech synthesis before seeing the Vietnamese result.
             socketio_emit(self.sid, "live_translation", {
@@ -133,10 +151,13 @@ class _LiveSession:
             })
             return
 
-        # Read the current toggle after translation, so changing it while the
-        # translation is in flight affects this sentence too.
-        if not self.tts_enabled or not vietnamese:
-            return
+        # TTS runs independently and cannot block the next queued translation.
+        if self.tts_enabled and vietnamese:
+            task = asyncio.create_task(self._synthesize_translation(text, vietnamese))
+            self.translation_tasks.add(task)
+            task.add_done_callback(self.translation_tasks.discard)
+
+    async def _synthesize_translation(self, text, vietnamese):
         try:
             spoken = await asyncio.to_thread(self.tts_engine.synthesize, vietnamese)
             if not self.tts_enabled or not spoken.get("audio"):
