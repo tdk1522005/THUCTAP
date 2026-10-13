@@ -10,9 +10,11 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template
 from flask_socketio import SocketIO, emit
 
-load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"), override=False)
 
-AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini").strip().lower()
+# OpenAI is the default provider. Set AI_PROVIDER=gemini explicitly to use Gemini.
+AI_PROVIDER = os.getenv("AI_PROVIDER", "openai").strip().lower()
 if AI_PROVIDER == "gemini":
     from stt.gemini_transcriber import GeminiTranscriber
     from translation.gemini_translator import GeminiTranslationEngine
@@ -31,6 +33,8 @@ elif AI_PROVIDER == "openai":
     tts_engine = OpenAITTSEngine()
 else:
     raise ValueError("AI_PROVIDER phải là 'gemini' hoặc 'openai'.")
+
+print(f"[THUCTAP] AI_PROVIDER={AI_PROVIDER!r}; config_file={os.path.join(BASE_DIR, '.env')}")
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "speech-translator-local"
