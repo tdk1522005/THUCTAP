@@ -175,13 +175,14 @@ let playbackQueue = [];
 let playing = false;
 let activeAudioUrl = null;
 let liveMode = false;
+let activeProvider = "gemini";
 let liveReady = false;
 let liveAudioQueue = [];
 let finalizedEnglish = [];
 let finalizedVietnamese = [];
 let currentInterim = "";
 
-const TARGET_RATE = 16000;
+let TARGET_RATE = 16000;
 const SILENCE_MS = 750;
 const MAX_CHUNK_MS = 6000;
 const MIN_CHUNK_MS = 700;
@@ -207,7 +208,9 @@ socket.on("disconnect", () => {
 
 socket.on("connection_status", data => {
   if (data.connected) {
-    liveMode = data.provider === "gemini" || data.provider === "openai";
+    activeProvider = data.provider || "gemini";
+    liveMode = activeProvider === "gemini" || activeProvider === "openai";
+    TARGET_RATE = activeProvider === "openai" ? 24000 : 16000;
     status(liveMode ? `Backend sẵn sàng · ${data.provider === "openai" ? "OpenAI" : "Gemini"} Realtime.` : "Backend đã sẵn sàng · xử lý theo cụm.");
   }
 });
@@ -592,12 +595,30 @@ $("startButton").addEventListener("click", async () => {
       );
 
       if (liveMode) {
+        let energy = 0;
+        for (const value of pcm) energy += value * value;
+        const rms = Math.sqrt(energy / Math.max(1, pcm.length));
+        if (rms >= RMS_THRESHOLD) {
+          speechStarted = true;
+          silenceSamples = 0;
+        } else if (speechStarted) {
+          silenceSamples += pcm.length;
+        }
+
         const encoded = encodePcm16Base64(pcm);
         if (liveReady) {
           socket.emit("live_audio", { audio: encoded });
         } else {
           liveAudioQueue.push(encoded);
           if (liveAudioQueue.length > 20) liveAudioQueue.shift();
+        }
+
+        // gpt-live-transcribe has no server VAD; commit the audio turn after silence.
+        if (activeProvider === "openai" && liveReady && speechStarted &&
+            silenceSamples >= TARGET_RATE * 0.55) {
+          socket.emit("live_commit");
+          speechStarted = false;
+          silenceSamples = 0;
         }
         return;
       }
@@ -662,6 +683,7 @@ $("stopButton").addEventListener("click", async () => {
 
   // Gửi phần audio cuối cùng nếu đang dùng chế độ xử lý theo cụm.
   if (liveMode) {
+    if (activeProvider === "openai" && liveReady && speechStarted) socket.emit("live_commit");
     socket.emit("live_stop");
     liveReady = false;
     liveAudioQueue = [];
