@@ -24,6 +24,7 @@ class OpenAILiveTranscriber:
         self._ready = asyncio.Event()
         self._error = None
         self._partial_text = ""
+        self._turn_complete = asyncio.Event()
 
     async def start(self, on_transcript):
         if self.connection is not None:
@@ -33,6 +34,7 @@ class OpenAILiveTranscriber:
         self._ready.clear()
         self._error = None
         self._partial_text = ""
+        self._turn_complete.clear()
         self._context = self.client.realtime.connect(model=self.model)
         self.connection = await self._context.__aenter__()
         await self.connection.send({
@@ -76,7 +78,13 @@ class OpenAILiveTranscriber:
     async def commit_audio(self):
         if self.connection is None or self._closed:
             return
+        self._turn_complete.clear()
         await self.connection.send({"type": "input_audio_buffer.commit"})
+        try:
+            await asyncio.wait_for(self._turn_complete.wait(), timeout=6)
+        except asyncio.TimeoutError:
+            # Keep the session usable even if the provider omits a final event.
+            return
 
     async def _receive_loop(self):
         try:
@@ -94,6 +102,7 @@ class OpenAILiveTranscriber:
                     if transcript:
                         self._partial_text = ""
                         await self._callback("final", transcript)
+                    self._turn_complete.set()
                 elif event_type in {"error", "conversation.item.input_audio_transcription.failed"}:
                     error = getattr(event, "error", None)
                     message = getattr(error, "message", None) or getattr(event, "message", None) or str(event)
