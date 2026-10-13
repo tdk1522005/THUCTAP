@@ -10,7 +10,6 @@ class FakeLiveSession:
     def __init__(self, messages=None):
         self.messages = messages or []
         self.sent = []
-        self.closed = False
 
     async def send_realtime_input(self, **kwargs):
         self.sent.append(kwargs)
@@ -46,45 +45,47 @@ class FakeClient:
         self.aio = SimpleNamespace(live=FakeLive(session))
 
 
-@pytest.mark.asyncio
-async def test_live_transcriber_sends_16khz_pcm():
-    session = FakeLiveSession()
-    client = FakeClient(session)
-    engine = GeminiLiveTranscriber(client=client)
-    await engine.start(lambda kind, text: asyncio.sleep(0))
-    await engine.send_audio(b"\\x00\\x00" * 160)
-    assert session.sent[0]["audio"].mime_type == "audio/pcm;rate=16000"
-    assert session.sent[0]["audio"].data == b"\\x00\\x00" * 160
-    await engine.close()
+def test_live_transcriber_sends_16khz_pcm():
+    async def scenario():
+        session = FakeLiveSession()
+        engine = GeminiLiveTranscriber(client=FakeClient(session))
+        await engine.start(lambda kind, text: asyncio.sleep(0))
+        await engine.send_audio(b"\\x00\\x00" * 160)
+        assert session.sent[0]["audio"].mime_type == "audio/pcm;rate=16000"
+        assert session.sent[0]["audio"].data == b"\\x00\\x00" * 160
+        await engine.close()
+    asyncio.run(scenario())
 
 
-@pytest.mark.asyncio
-async def test_live_transcriber_emits_interim_and_final_events():
-    messages = [
-        SimpleNamespace(server_content=SimpleNamespace(
-            interim_input_transcription=SimpleNamespace(text="hello"),
-            input_transcription=None,
-        )),
-        SimpleNamespace(server_content=SimpleNamespace(
-            interim_input_transcription=None,
-            input_transcription=SimpleNamespace(text="Hello there."),
-        )),
-    ]
-    engine = GeminiLiveTranscriber(client=FakeClient(FakeLiveSession(messages)))
-    events = []
+def test_live_transcriber_emits_interim_and_final_events():
+    async def scenario():
+        messages = [
+            SimpleNamespace(server_content=SimpleNamespace(
+                interim_input_transcription=SimpleNamespace(text="hello"),
+                input_transcription=None,
+            )),
+            SimpleNamespace(server_content=SimpleNamespace(
+                interim_input_transcription=None,
+                input_transcription=SimpleNamespace(text="Hello there."),
+            )),
+        ]
+        engine = GeminiLiveTranscriber(client=FakeClient(FakeLiveSession(messages)))
+        events = []
 
-    async def on_transcript(kind, text):
-        events.append((kind, text))
+        async def on_transcript(kind, text):
+            events.append((kind, text))
 
-    await engine.start(on_transcript)
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    assert events == [("interim", "hello"), ("final", "Hello there.")]
-    await engine.close()
+        await engine.start(on_transcript)
+        if engine._receiver_task:
+            await engine._receiver_task
+        assert events == [("interim", "hello"), ("final", "Hello there.")]
+        await engine.close()
+    asyncio.run(scenario())
 
 
-@pytest.mark.asyncio
-async def test_live_transcriber_rejects_audio_when_not_started():
-    engine = GeminiLiveTranscriber(client=FakeClient(FakeLiveSession()))
-    with pytest.raises(RuntimeError):
-        await engine.send_audio(b"\\x00\\x00")
+def test_live_transcriber_rejects_audio_when_not_started():
+    async def scenario():
+        engine = GeminiLiveTranscriber(client=FakeClient(FakeLiveSession()))
+        with pytest.raises(RuntimeError):
+            await engine.send_audio(b"\\x00\\x00")
+    asyncio.run(scenario())
