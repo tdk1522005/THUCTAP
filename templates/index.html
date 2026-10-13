@@ -257,11 +257,17 @@ socket.on("live_translation", data => {
   entry.append(en, vi);
   if ($("history").textContent === "Chưa có kết quả.") $("history").textContent = "";
   $("history").prepend(entry);
+  status("Realtime · tiếp tục lắng nghe...");
+});
+
+socket.on("live_tts_audio", data => {
   if (data.audio_base64 && $("ttsToggle").checked) {
     playbackQueue.push(data.audio_base64);
     playNextAudio();
   }
-  status("Realtime · tiếp tục lắng nghe...");
+});
+socket.on("live_tts_error", data => {
+  status(data.error || "Bản dịch đã có nhưng TTS gặp lỗi.");
 });
 
 socket.on("live_prediction", data => {
