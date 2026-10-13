@@ -97,6 +97,11 @@ class _LiveSession:
                 else:
                     await self.engine.send_audio(item)
         finally:
+            if self.translation_queue is not None and self.translation_worker and not self.translation_worker.done():
+                try:
+                    await asyncio.wait_for(self.translation_queue.join(), timeout=8)
+                except asyncio.TimeoutError:
+                    logging.getLogger(__name__).warning("Timed out draining OpenAI translation queue on stop")
             if self.translation_worker and not self.translation_worker.done():
                 self.translation_worker.cancel()
                 await asyncio.gather(self.translation_worker, return_exceptions=True)
