@@ -37,7 +37,7 @@ class OpenAILiveTranscriber:
         self._partial_text = ""
         self._turn_complete.clear()
         self._context = self.client.realtime.connect(
-            model=self.model,
+            model=os.getenv("OPENAI_REALTIME_SESSION_MODEL", "gpt-realtime"),
             extra_query={"intent": "transcription"},
         )
         self.connection = await self._context.__aenter__()
