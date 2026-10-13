@@ -43,7 +43,7 @@ class _LiveSession:
         self.history = []
         self.prediction_task = None
         self.prediction_enabled = os.getenv("GEMINI_PREDICTION_ENABLED", "true").lower() in {"1", "true", "yes"}
-        self.prediction_model = os.getenv("GEMINI_PREDICTION_MODEL", "gemini-2.5-flash")
+        self.prediction_model = os.getenv("GEMINI_PREDICTION_MODEL", "gemini-3.8-flash")
 
     def start(self, tts_enabled=False):
         self.tts_enabled = bool(tts_enabled)
