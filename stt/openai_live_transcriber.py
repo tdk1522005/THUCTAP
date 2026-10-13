@@ -23,6 +23,7 @@ class OpenAILiveTranscriber:
         self._closed = False
         self._ready = asyncio.Event()
         self._error = None
+        self._partial_text = ""
 
     async def start(self, on_transcript):
         if self.connection is not None:
@@ -31,6 +32,7 @@ class OpenAILiveTranscriber:
         self._closed = False
         self._ready.clear()
         self._error = None
+        self._partial_text = ""
         self._context = self.client.realtime.connect(model=self.model)
         self.connection = await self._context.__aenter__()
         await self.connection.send({
@@ -84,10 +86,12 @@ class OpenAILiveTranscriber:
                 elif event_type == "conversation.item.input_audio_transcription.delta":
                     delta = getattr(event, "delta", "")
                     if delta:
-                        await self._callback("interim", delta)
+                        self._partial_text += delta
+                        await self._callback("interim", self._partial_text)
                 elif event_type == "conversation.item.input_audio_transcription.completed":
                     transcript = getattr(event, "transcript", "")
                     if transcript:
+                        self._partial_text = ""
                         await self._callback("final", transcript)
                 elif event_type in {"error", "conversation.item.input_audio_transcription.failed"}:
                     error = getattr(event, "error", None)
