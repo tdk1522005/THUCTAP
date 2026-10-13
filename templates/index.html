@@ -175,7 +175,7 @@ let playbackQueue = [];
 let playing = false;
 let activeAudioUrl = null;
 let liveMode = false;
-let activeProvider = "gemini";
+let activeProvider = "openai";
 let liveReady = false;
 let liveAudioQueue = [];
 let openaiPreRoll = [];
@@ -209,7 +209,7 @@ socket.on("disconnect", () => {
 
 socket.on("connection_status", data => {
   if (data.connected) {
-    activeProvider = data.provider || "gemini";
+    activeProvider = data.provider || "openai";
     liveMode = activeProvider === "gemini" || activeProvider === "openai";
     TARGET_RATE = activeProvider === "openai" ? 24000 : 16000;
     status(liveMode ? `Backend sẵn sàng · ${data.provider === "openai" ? "OpenAI" : "Gemini"} Realtime.` : "Backend đã sẵn sàng · xử lý theo cụm.");
