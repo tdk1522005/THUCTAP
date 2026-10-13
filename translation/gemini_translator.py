@@ -8,7 +8,7 @@ load_dotenv()
 
 
 class GeminiTranslationEngine:
-    def __init__(self, client=None, model=None, retry_attempts=3):
+    def __init__(self, client=None, model=None, retry_attempts=2):
         self.model = model or os.getenv("GEMINI_TRANSLATION_MODEL", "gemini-3.8-flash")
         self.client = client or genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         self.retry_attempts = max(1, int(retry_attempts))
@@ -27,9 +27,15 @@ class GeminiTranslationEngine:
 
         for attempt in range(self.retry_attempts):
             try:
+                from google.genai import types
+
                 response = self.client.models.generate_content(
                     model=self.model,
                     contents=contents,
+                    config=types.GenerateContentConfig(
+                        temperature=0.1,
+                        max_output_tokens=128,
+                    ),
                 )
                 return {
                     "text": (getattr(response, "text", None) or "").strip(),
@@ -42,6 +48,6 @@ class GeminiTranslationEngine:
                     raise
                 if attempt + 1 >= self.retry_attempts:
                     raise
-                time.sleep(2 ** attempt)
+                time.sleep(0.5)
 
         raise RuntimeError("Translation retry loop ended unexpectedly")
