@@ -12,15 +12,15 @@ from stt.openai_live_transcriber import OpenAILiveTranscriber
 
 _live_sessions = {}
 _live_lock = threading.Lock()
-_FILLERS = re.compile(r"\\b(um+|uh+|er+|ah+|hmm+)\\b[,.]?\\s*", re.I)
-_REPEAT = re.compile(r"\\b(\\w+)(\\s+\\1\\b)+", re.I)
+_FILLERS = re.compile(r"\b(um+|uh+|er+|ah+|hmm+)\b[,.]?\s*", re.I)
+_REPEAT = re.compile(r"\b(\w+)(\s+\1\b)+", re.I)
 
 
 def _clean_text(text):
     text = _FILLERS.sub("", text or "")
-    text = _REPEAT.sub(r"\\1", text)
-    text = re.sub(r"\\s+", " ", text).strip()
-    text = re.sub(r"\\bi\\b", "I", text)
+    text = _REPEAT.sub(r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\bi\b", "I", text)
     return text[:1].upper() + text[1:] if text else text
 
 
