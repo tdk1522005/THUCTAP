@@ -72,8 +72,8 @@ Mở `.env`. Để dùng Gemini, cấu hình:
 ```env
 AI_PROVIDER=gemini
 GEMINI_API_KEY=your_gemini_api_key_here
-GEMINI_STT_MODEL=gemini-2.5-flash
-GEMINI_TRANSLATION_MODEL=gemini-2.5-flash
+GEMINI_STT_MODEL=gemini-3.8-flash
+GEMINI_TRANSLATION_MODEL=gemini-3.8-flash
 GEMINI_TTS_MODEL=gemini-3.8-flash-tts
 GEMINI_TTS_VOICE=Kore
 ```
@@ -245,7 +245,7 @@ Configuration:
 
 - `GEMINI_LIVE_MODEL=gemini-3.5-transcribe-live`
 - `GEMINI_PREDICTION_ENABLED=true` (set to `false` to reduce additional text-model requests/credit usage)
-- `GEMINI_PREDICTION_MODEL=gemini-2.5-flash`
+- `GEMINI_PREDICTION_MODEL=gemini-3.8-flash`
 - `GEMINI_PREDICTION_DEBOUNCE=0.6`
 
 The OpenAI provider continues to use the existing chunk-based flow. The Live API path requires access to the configured Gemini models; mock tests do not validate live account access.
