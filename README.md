@@ -53,7 +53,6 @@ Nếu PowerShell chặn việc chạy script, có thể sử dụng Command Prom
 
 ```powershell
 python -m pip install --upgrade pip
-pip install -r requirements.txt
 pip install -r requirements-gemini.txt
 ```
 
@@ -227,10 +226,10 @@ pip install -r requirements.txt
 Tại thời điểm cập nhật tài liệu, bộ test đã chạy thành công với kết quả:
 
 ```text
-28 passed
+41 passed in 6.41s
 ```
 
-Thời gian chạy ghi nhận ở một lần kiểm thử là 5.90 giây. Đây là kết quả tại thời điểm kiểm tra, không phải cam kết về thời gian chạy trên mọi máy tính.
+Kết quả này được ghi nhận khi chạy `python -m pytest tests/ -q` trên máy phát triển ngày 2026-10-13. Thời gian có thể khác tùy cấu hình máy. Đây là unit test dùng mock; không xác nhận API trực tiếp.
 
 ---
 
