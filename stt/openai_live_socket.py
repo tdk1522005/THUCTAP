@@ -92,7 +92,10 @@ class _LiveSession:
                 item = await self.audio_queue.get()
                 if item is None:
                     break
-                await self.engine.send_audio(item)
+                if item == "__commit__":
+                    await self.engine.commit_audio()
+                else:
+                    await self.engine.send_audio(item)
         finally:
             if self.translation_worker and not self.translation_worker.done():
                 self.translation_worker.cancel()
@@ -164,6 +167,17 @@ class _LiveSession:
             future.cancel()
             return False
 
+    def commit_turn(self):
+        if self.closed or not self.loop.is_running() or self.audio_queue is None:
+            return False
+        future = asyncio.run_coroutine_threadsafe(self.audio_queue.put("__commit__"), self.loop)
+        try:
+            future.result(timeout=2)
+            return True
+        except Exception:
+            future.cancel()
+            return False
+
     def stop(self):
         if self.closed:
             return
@@ -217,6 +231,14 @@ def configure_openai_live_socketio(socketio_instance, translator, tts_engine):
             session = _live_sessions.get(sid)
         if session and pcm and not session.send_audio(pcm):
             emit("live_error", {"error": "Hàng đợi audio đầy hoặc phiên đã dừng."})
+
+    @socketio.on("live_commit")
+    def handle_live_commit():
+        sid = __import__("flask").request.sid
+        with _live_lock:
+            session = _live_sessions.get(sid)
+        if session and not session.commit_turn():
+            emit("live_error", {"error": "Không thể chốt câu audio hiện tại."})
 
     @socketio.on("live_tts_toggle")
     def handle_live_tts_toggle(data):
