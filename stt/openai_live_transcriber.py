@@ -73,6 +73,11 @@ class OpenAILiveTranscriber:
             "audio": base64.b64encode(pcm16_bytes).decode("ascii"),
         })
 
+    async def commit_audio(self):
+        if self.connection is None or self._closed:
+            return
+        await self.connection.send({"type": "input_audio_buffer.commit"})
+
     async def _receive_loop(self):
         try:
             async for event in self.connection:
