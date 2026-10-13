@@ -36,6 +36,10 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = "speech-translator-local"
 socketio = SocketIO(app, async_mode="threading", max_http_buffer_size=5_000_000)
 
+if AI_PROVIDER == "gemini":
+    from stt.gemini_live_socket import configure_live_socketio
+    configure_live_socketio(socketio, translator, tts_engine)
+
 
 def decode_audio(audio_bytes):
     """Giải mã audio thành WAV mono 16 kHz."""
