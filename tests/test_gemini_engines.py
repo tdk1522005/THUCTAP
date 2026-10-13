@@ -3,8 +3,10 @@ import wave
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from stt.gemini_transcriber import GeminiTranscriber
+from translation import gemini_translator
 from translation.gemini_translator import GeminiTranslationEngine
 from translation.gemini_tts import GeminiTTSEngine
 
@@ -16,12 +18,23 @@ class FakeModels:
 
     def generate_content(self, **kwargs):
         self.calls.append(kwargs)
+        if isinstance(self.response, list):
+            result = self.response.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
         return self.response
 
 
 class FakeClient:
     def __init__(self, response):
         self.models = FakeModels(response)
+
+
+class FakeAPIError(Exception):
+    def __init__(self, code):
+        super().__init__(f"API error {code}")
+        self.code = code
 
 
 def test_gemini_transcriber_empty_audio_skips_api():
@@ -45,6 +58,31 @@ def test_gemini_translation_skips_empty_and_translates():
     assert engine.translate(" ") == {"text": "", "latency_ms": 0}
     assert engine.translate("Hello.")["text"] == "Xin chào."
     assert len(client.models.calls) == 1
+
+
+def test_gemini_translation_retries_503_then_succeeds(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(gemini_translator.time, "sleep", sleeps.append)
+    client = FakeClient([
+        FakeAPIError(503),
+        SimpleNamespace(text=" Xin chào. "),
+    ])
+    engine = GeminiTranslationEngine(client=client)
+    result = engine.translate("Hello.")
+    assert result["text"] == "Xin chào."
+    assert len(client.models.calls) == 2
+    assert sleeps == [1]
+
+
+def test_gemini_translation_does_not_retry_non_503(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(gemini_translator.time, "sleep", sleeps.append)
+    client = FakeClient([FakeAPIError(404)])
+    engine = GeminiTranslationEngine(client=client)
+    with pytest.raises(FakeAPIError):
+        engine.translate("Hello.")
+    assert len(client.models.calls) == 1
+    assert sleeps == []
 
 
 def test_gemini_tts_returns_valid_wav():
