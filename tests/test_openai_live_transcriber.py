@@ -2,8 +2,6 @@ import asyncio
 import base64
 from types import SimpleNamespace
 
-import pytest
-
 from stt.openai_live_transcriber import OpenAILiveTranscriber
 
 
@@ -52,8 +50,8 @@ class FakeClient:
         self.realtime = FakeRealtime(connection)
 
 
-@pytest.mark.asyncio
-async def test_openai_live_transcriber_accumulates_deltas_and_finalizes():
+def test_openai_live_transcriber_accumulates_deltas_and_finalizes():
+    async def run():
     connection = FakeConnection([
         SimpleNamespace(type="session.updated"),
         SimpleNamespace(type="conversation.item.input_audio_transcription.delta", delta="Hello"),
@@ -78,8 +76,8 @@ async def test_openai_live_transcriber_accumulates_deltas_and_finalizes():
     await engine.close()
 
 
-@pytest.mark.asyncio
-async def test_openai_live_transcriber_sends_pcm_as_base64():
+def test_openai_live_transcriber_sends_pcm_as_base64():
+    async def run():
     connection = FakeConnection([SimpleNamespace(type="session.updated")])
     engine = OpenAILiveTranscriber(client=FakeClient(connection))
     await engine.start(lambda *_: asyncio.sleep(0))
