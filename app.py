@@ -39,6 +39,9 @@ socketio = SocketIO(app, async_mode="threading", max_http_buffer_size=5_000_000)
 if AI_PROVIDER == "gemini":
     from stt.gemini_live_socket import configure_live_socketio
     configure_live_socketio(socketio, translator, tts_engine)
+elif AI_PROVIDER == "openai":
+    from stt.openai_live_socket import configure_openai_live_socketio
+    configure_openai_live_socketio(socketio, translator, tts_engine)
 
 
 def decode_audio(audio_bytes):
