@@ -235,7 +235,7 @@ socket.on("live_ready", () => {
   liveReady = true;
   for (const audio of liveAudioQueue) socket.emit("live_audio", { audio });
   liveAudioQueue = [];
-  status(`Realtime đã kết nối · đang nhận giọng nói (${socket.provider || "AI"}).`);
+  status(`Realtime đã kết nối · đang nhận giọng nói (${activeProvider === "openai" ? "OpenAI" : "Gemini"}).`);
 });
 
 function renderEnglishTranscript() {
