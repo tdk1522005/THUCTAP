@@ -72,6 +72,7 @@ Mở `.env`. Để dùng OpenAI (mặc định), cấu hình:
 ```env
 AI_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_REALTIME_SESSION_MODEL=gpt-realtime
 OPENAI_LIVE_MODEL=gpt-live-transcribe
 OPENAI_TRANSLATION_MODEL=gpt-4.1-mini
 OPENAI_TTS_MODEL=gpt-4o-mini-tts
@@ -247,4 +248,4 @@ Configuration:
 - `GEMINI_PREDICTION_MODEL=gemini-3.8-flash`
 - `GEMINI_PREDICTION_DEBOUNCE=0.6`
 
-When `AI_PROVIDER=openai`, the browser streams mono 16-bit PCM at 16 kHz to OpenAI Realtime Transcription (`OPENAI_LIVE_MODEL=gpt-live-transcribe`). Interim transcript deltas are accumulated and shown while speaking; completed turns are queued and translated sequentially with `OPENAI_TRANSLATION_MODEL`. Optional TTS runs independently so it does not delay the next translation. Gemini keeps its existing Live path. API connectivity and account/model access must be tested with a real key; unit tests should use mocks and do not consume API credit.
+When `AI_PROVIDER=openai`, the browser streams mono 16-bit PCM at 16 kHz to OpenAI Realtime Transcription (`OPENAI_REALTIME_SESSION_MODEL=gpt-realtime`, transcription model `OPENAI_LIVE_MODEL=gpt-live-transcribe`). Interim transcript deltas are accumulated and shown while speaking; completed turns are queued and translated sequentially with `OPENAI_TRANSLATION_MODEL`. Optional TTS runs independently so it does not delay the next translation. Gemini keeps its existing Live path. API connectivity and account/model access must be tested with a real key; unit tests should use mocks and do not consume API credit.
